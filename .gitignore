@@ -1,0 +1,8 @@
+# Godot 4 editor and import cache
+.godot/
+/android/
+
+# OS clutter
+Thumbs.db
+.DS_Store
+desktop.ini
