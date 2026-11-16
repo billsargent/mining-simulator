@@ -33,6 +33,7 @@ var hud: Hud
 var inv := Inventory.new()
 var clock := ""
 var map_open := false
+var mine = null                       # the mine interior, while you're inside it
 
 var camera: Camera3D
 var pan_view: PanView = null
@@ -72,9 +73,10 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_lamp = SpotLight3D.new()
-	_lamp.spot_range = 24.0
-	_lamp.spot_angle = 30.0
-	_lamp.light_energy = 2.2
+	_lamp.spot_range = 32.0
+	_lamp.spot_angle = 42.0
+	_lamp.spot_attenuation = 0.6
+	_lamp.light_energy = 5.0
 	_lamp.light_color = Color(1.0, 0.96, 0.88)
 	_lamp.position = Vector3(0.1, 0.05, 0.0)
 	_lamp.visible = false
@@ -164,8 +166,14 @@ func _physics_process(delta: float) -> void:
 	_aim = _look_hit()
 	_target = _find_interactable(_aim)
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if mine != null and global_position.y < mine.global_position.y - 3.0:
+		global_position = mine.spawn_point()      # safety net: never fall out of the mine
+		velocity = Vector3.ZERO
 	if captured and Input.is_action_pressed("dig") and _dig_cd <= 0.0:
-		_try_dig()
+		if mine != null:
+			_try_chip()
+		else:
+			_try_dig()
 	if Input.is_action_just_pressed("interact") and _interact_block <= 0.0:
 		if _target != null:
 			_target.interact(self)
@@ -263,6 +271,37 @@ func _try_dig() -> void:
 		inv.bucket.append(dirt)
 	if res["at_bedrock"]:
 		hud.toast("Down to bedrock. This is where the gold settles.", Color(1.0, 0.9, 0.6))
+	refresh_hud()
+
+
+func _aiming_at_rock() -> bool:
+	if _aim.is_empty():
+		return false
+	var col: Object = _aim.get("collider")
+	return col is Node and (col as Node).is_in_group("mine")
+
+
+## Chip the mine wall. Plain rock just breaks away; quartz vein goes in the ore sack.
+func _try_chip() -> void:
+	if not _aiming_at_rock():
+		return
+	_dig_cd = 0.7
+	if inv.ore.size() >= Inventory.ORE_CAPACITY:
+		hud.toast("Your ore sack is full. Take it home to the ore crusher.")
+		return
+	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"])
+	_animate_dig()
+	var vein: int = int(res["vein_a"]) + int(res["vein_b"])
+	if vein > 0:
+		var expected := 1.1 * float(res["vein_a"]) + 2.4 * float(res["vein_b"])
+		var pieces := int(expected) + (1 if randf() < expected - int(expected) else 0)
+		var chunk := Paydirt.new()
+		chunk.black_sand = 0.25
+		for i in pieces:
+			chunk.add_gold(deposits.piece(true))
+		inv.ore.append(chunk)
+		inv.complete_goal("ore")
+		hud.toast("Quartz ore into the sack  (%d/%d)" % [inv.ore.size(), Inventory.ORE_CAPACITY], Color(1.0, 0.95, 0.8), 1.5)
 	refresh_hud()
 
 
@@ -392,7 +431,7 @@ func _try_pan() -> void:
 	if inv.bucket.is_empty() and inv.cons.is_empty():
 		hud.toast("Nothing to pan. Dig some gravel first (left mouse).")
 		return
-	if not _near_water():
+	if mine != null or not _near_water():
 		hud.toast("You need water to pan. Get to the edge of a creek, or use the wash tub at the cabin.")
 		return
 	if not inv.bucket.is_empty():
@@ -487,7 +526,7 @@ func _near_water() -> bool:
 
 
 func _in_water() -> bool:
-	return terrain.water_depth(global_position.x, global_position.z) > 0.15
+	return mine == null and terrain.water_depth(global_position.x, global_position.z) > 0.15
 
 
 # --- HUD and visuals ---------------------------------------------------------------
@@ -497,6 +536,9 @@ func _update_prompt() -> void:
 		hud.set_prompt(_target.prompt(self))
 		return
 	var parts := PackedStringArray()
+	if mine != null:
+		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock (white quartz carries gold)" if _aiming_at_rock() else "")
+		return
 	if _near_water():
 		if not inv.bucket.is_empty():
 			parts.append(Hud.key("E") + " Pan a shovelful")

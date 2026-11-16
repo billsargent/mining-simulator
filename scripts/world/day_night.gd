@@ -12,6 +12,7 @@ const NIGHT_HORIZON := Color(0.1, 0.13, 0.21)
 
 var hours := 8.0
 var day := 1
+var underground := false
 var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var sun: DirectionalLight3D
@@ -80,3 +81,21 @@ func apply() -> void:
 	sky_mat.ground_bottom_color = top * 0.4
 	env.fog_light_color = horizon
 	env.ambient_light_energy = lerpf(4.0, 1.0, day_f)
+	if underground:
+		# No sky down here: only lamps, and a trace of light so walls aren't pure black.
+		sun.visible = false
+		moon.visible = false
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(0.5, 0.48, 0.45)
+		env.ambient_light_energy = 0.16
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+		env.fog_light_color = Color.BLACK
+		env.fog_aerial_perspective = 0.0
+		env.fog_sky_affect = 0.0
+		env.fog_density = 0.006
+	else:
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		env.fog_aerial_perspective = 0.55
+		env.fog_sky_affect = 0.25
+		env.fog_density = 0.0016

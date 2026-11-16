@@ -112,6 +112,8 @@ func set_status(inv, bucket_capacity: int, clock: String = "") -> void:
 	lines.append("Bucket   %d / %d" % [inv.bucket.size(), bucket_capacity])
 	if not inv.cons.is_empty():
 		lines.append("Concentrate   %d jar%s" % [inv.cons.size(), "" if inv.cons.size() == 1 else "s"])
+	if not inv.ore.is_empty():
+		lines.append("Ore sack   %d / %d" % [inv.ore.size(), inv.ORE_CAPACITY])
 	var gold := "Gold   %.3f g" % inv.vial_grams()
 	if not inv.nuggets.is_empty():
 		gold += "     Nuggets   %d  (%.2f g)" % [inv.nuggets.size(), inv.nugget_grams()]

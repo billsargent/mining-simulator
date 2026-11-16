@@ -18,11 +18,17 @@ const GOALS = [
 	["haul", "Carry a machine to a vehicle and set it on the rack or in the bed (left mouse)."],
 	["map", "Open the map (M) and drop a waypoint where you want to go (left click)."],
 	["last_chance", "Find the old camp on Last Chance Creek. The old-timers said that creek was rich."],
+	["mine_enter", "Find the old mine above Rattlesnake Gulch (west on the map) and go in. Bring your headlamp (L)."],
+	["ore", "Chip a white quartz vein in the mine wall (left mouse) to fill your ore sack."],
+	["crushed", "Take the ore home and pound it in the ore crusher by the wash tub, then pan the jar."],
 ]
+
+const ORE_CAPACITY := 10
 
 var money := 0
 var bucket: Array = []                  # Paydirt shovelfuls
 var cons: Array = []                    # Paydirt jars of concentrate
+var ore: Array = []                     # Paydirt pieces of quartz ore from the mine
 var vial := PackedFloat32Array()        # loose gold: fines, flakes, pickers
 var nuggets := PackedFloat32Array()
 var bars: Array = []                    # {"grams": float, "purity": float}
@@ -82,7 +88,7 @@ func next_goal() -> String:
 
 func to_dict() -> Dictionary:
 	return {
-		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons),
+		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "goals": goals_done, "samples": samples,
 	}
@@ -92,6 +98,7 @@ func from_dict(d: Dictionary) -> void:
 	money = d.get("money", 0)
 	bucket = _dirt_in(d.get("bucket", []))
 	cons = _dirt_in(d.get("cons", []))
+	ore = _dirt_in(d.get("ore", []))
 	vial = d.get("vial", PackedFloat32Array())
 	nuggets = d.get("nuggets", PackedFloat32Array())
 	bars = d.get("bars", [])

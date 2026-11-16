@@ -38,6 +38,9 @@ const Pump = preload("res://scripts/machines/pump.gd")
 const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
+const Mine = preload("res://scripts/mine/mine.gd")
+
+const MINE_DEPTH := -300.0     # the mine interior sits this far below sea level, out of sight
 
 const SEED := 1849
 const AUTOSAVE_SECONDS := 60.0
@@ -53,6 +56,7 @@ var hud: Hud
 var menu: PauseMenu
 var map_view: MapView
 var day_night: DayNight
+var mine: Mine
 var ready_to_play := false
 
 var _opts := {}
@@ -198,6 +202,43 @@ func _update_compass() -> void:
 			markers.append([Vector2(v.global_position.x, v.global_position.z), Color(0.5, 0.75, 1.0), v.display_name])
 	var f := focus_position()
 	hud.compass.update_view(heading(), Vector2(f.x, f.z), markers)
+
+
+## The mine interior is built the first time it's needed.
+func _ensure_mine(carved: PackedInt32Array = PackedInt32Array()) -> void:
+	if mine != null:
+		return
+	var site: Vector2 = world.sites["mine"]["pos"]
+	mine = Mine.new()
+	add_child(mine)
+	mine.global_position = Vector3(site.x - 2.0, MINE_DEPTH, site.y - 30.0)
+	mine.build(carved)
+
+
+func enter_mine() -> void:
+	_ensure_mine()
+	player.global_position = mine.spawn_point()
+	player.rotation = Vector3(0.0, mine.spawn_yaw(), 0.0)
+	player.velocity = Vector3.ZERO
+	player.mine = mine
+	day_night.underground = true
+	day_night.apply()
+	if not player.headlamp_on():
+		player.set_headlamp(true)
+	if player.inv.complete_goal("mine_enter"):
+		hud.toast("Dark and cold. White quartz veins in the walls can carry gold: chip them with left mouse.", Color(1.0, 0.9, 0.6), 7.0)
+
+
+func exit_mine() -> void:
+	var site: Dictionary = world.sites["mine"]
+	var pos: Vector2 = (site["pos"] as Vector2) + (site["facing"] as Vector2) * 3.5
+	var facing: Vector2 = site["facing"]
+	player.global_position = Vector3(pos.x, terrain.height_at(pos.x, pos.y) + 0.1, pos.y)
+	player.rotation = Vector3(0.0, atan2(-facing.x, -facing.y), 0.0)
+	player.velocity = Vector3.ZERO
+	player.mine = null
+	day_night.underground = false
+	day_night.apply()
 
 
 func sleep() -> void:
@@ -423,7 +464,8 @@ func _collect_save() -> Dictionary:
 		ppos = player.driving.to_global(player.driving.exit_offset)
 		ppos.y = terrain.height_at(ppos.x, ppos.z) + 0.1
 	return {
-		"player": {"pos": ppos, "yaw": player.rotation.y, "headlamp": player.headlamp_on()},
+		"player": {"pos": ppos, "yaw": player.rotation.y, "headlamp": player.headlamp_on(), "in_mine": player.mine != null},
+		"mine": {"carved": mine.carved if mine != null else PackedInt32Array()},
 		"inventory": inv_data,
 		"digs": terrain.dig_data(),
 		"machines": machines,
@@ -465,6 +507,12 @@ func _load_game() -> bool:
 	player.global_position = p.get("pos", base.spawn_point)
 	player.rotation.y = p.get("yaw", base.spawn_yaw)
 	player.set_headlamp(p.get("headlamp", false))
+	var carved: PackedInt32Array = data.get("mine", {}).get("carved", PackedInt32Array())
+	if p.get("in_mine", false) or not carved.is_empty():
+		_ensure_mine(carved)
+	if p.get("in_mine", false):
+		player.mine = mine
+		day_night.underground = true
 	player.refresh_hud()
 	hud.toast("Welcome back.", Color(1.0, 0.9, 0.6))
 	return true
@@ -552,6 +600,14 @@ func _run_harness() -> void:
 			map_view.toggle()
 		if _opts.has("lamp"):
 			player.set_headlamp(true)
+		if _opts.has("inmine"):
+			enter_mine()
+			var spots := {"adit": [Vector3(8, 8.1, 30), -90.0], "vein": [Vector3(40.5, 8.1, 30), -70.0],
+				"junction": [Vector3(28, 8.1, 30), -90.0], "lower": [Vector3(63.5, 1.6, 22), 20.0]}
+			var s: Array = spots.get(_opts["inmine"], spots["adit"])
+			player.global_position = mine.to_global(s[0])
+			player.rotation.y = deg_to_rad(s[1])
+			player.camera.rotation.x = 0.0
 		if _opts.has("menu"):
 			menu.open()
 		for i in 30:
@@ -801,6 +857,36 @@ func _selftest() -> void:
 		and (data.get("machines", []) as Array).size() == 3 and cargo_saved)
 	_check("save: digs, waypoints, time", not (data.get("digs", {}).get("h", {}) as Dictionary).is_empty()
 		and (data.get("map", {}).get("waypoints", []) as Array).size() == 1 and data.get("time", {}).get("day", 0) == day_night.day)
+	SaveGame.delete()
+
+	# The old mine: go in, stand on the floor, chip rock and vein, crush the ore, come out.
+	enter_mine()
+	for i in 40:
+		await get_tree().physics_frame
+	var floor_y: float = mine.global_position.y + Mine.LEVEL1
+	_check("inside the mine, standing on the floor", player.mine == mine and player.is_on_floor() and absf(player.global_position.y - floor_y) < 0.4)
+	_check("it is dark underground", day_night.underground and not day_night.sun.visible)
+	var rock: Dictionary = mine.chip(mine.to_global(Vector3(20.0, 9.0, 31.2)), Vector3(0, 0, -1))
+	_check("plain rock chips away", int(rock["rock"]) > 0 and int(rock["vein_a"]) == 0)
+	player._aim = {"position": mine.to_global(Vector3(44.2, 9.0, 31.1)), "normal": Vector3(0, 0, -1), "collider": mine._body}
+	player._dig_cd = 0.0
+	player._try_chip()
+	_check("chipping the quartz vein fills the ore sack", inv.ore.size() == 1)
+	var lower: Dictionary = mine.chip(mine.to_global(Vector3(50.0, 2.5, 13.1)), Vector3(0, 0, 1))
+	_check("the lower vein is there", int(lower["vein_b"]) > 0)
+	player.global_position = mine.to_global(Vector3(56.0, 5.2, 30.0))
+	for i in 60:
+		await get_tree().physics_frame
+	_check("the ramp holds you", player.is_on_floor() and player.global_position.y > mine.global_position.y + 3.0)
+	exit_mine()
+	for i in 20:
+		await get_tree().physics_frame
+	pp = player.global_position
+	_check("back outside on the ground", player.mine == null and absf(pp.y - terrain.height_at(pp.x, pp.z)) < 0.5)
+	base.crusher.interact(player)
+	_check("crushing ore gives a jar to pan", inv.ore.is_empty() and inv.cons.size() == 1)
+	save_now()
+	_check("mine digging is saved", (SaveGame.read().get("mine", {}).get("carved", PackedInt32Array()) as PackedInt32Array).size() > 3)
 	SaveGame.delete()
 
 	# Walk.
