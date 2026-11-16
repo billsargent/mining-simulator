@@ -3,12 +3,13 @@ extends SceneTree
 ## Run: godot --headless --path . --script res://tests/test_recovery.gd
 
 const Recovery = preload("res://scripts/machines/recovery.gd")
-const Valley = preload("res://scripts/world/valley.gd")
+const WorldGen = preload("res://scripts/world/world_gen.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
 
 
 func _initialize() -> void:
-	var field := DepositField.new(Valley.new(1849), 1849)
+	# Piece sizes don't depend on the world, so an ungenerated one is enough here.
+	var field := DepositField.new(WorldGen.new(1849), 1849)
 	var pieces := PackedFloat32Array()
 	for i in 4000:
 		pieces.append(field._piece_mass(true))

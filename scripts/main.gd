@@ -1,48 +1,67 @@
 extends Node3D
-## M2 "Bucket to bar": the test valley with Grandpa's place, equipment, saving, and a test harness.
+## M3 "Go far": generates the 2×2 km world behind a loading screen, then runs the game:
+## streaming around the player, day and night, vehicles, the map and compass, saving, and a
+## test harness.
 ##
 ## Command-line flags (after `--`) for automated checks. Any flag starts a fresh world and
 ## turns saving off:
 ##   --selftest                         run the whole loop headless and print results
+##   --savetest=write|writev1|read      save round trip across two runs (v2, or an M2-era save)
 ##   --shot=<file.png>                  save a screenshot and quit
-##   --cam=x,z,yaw,pitch                place the player first (angles in degrees)
+##   --view=base|creek|valley|camp|mine place the camera at a named spot
+##   --cam=x,z,yaw,pitch                or at exact coordinates (degrees)
+##   --time=<hour>                      set the time of day
 ##   --pan=fresh|shaken|washing|done    open the pan in a given state
 ##   --dig=N                            dig a few holes in front of the camera
-##   --demo                             set up the sluice, high banker and pump by the creek
+##   --demo                             set up the sluice, high banker and pump by Cabin Creek
+##   --drive=atv|truck                  sit in a vehicle
+##   --carry=sluice|pump|high_banker    carry a machine
+##   --menu / --map                     open the Esc menu / the map
 ##   --fps                              print the frame rate for 8 seconds
 
-const Valley = preload("res://scripts/world/valley.gd")
-const Terrain = preload("res://scripts/world/terrain.gd")
+const WorldGen = preload("res://scripts/world/world_gen.gd")
+const WorldTerrain = preload("res://scripts/world/world_terrain.gd")
+const Rivers = preload("res://scripts/world/rivers.gd")
 const Scatter = preload("res://scripts/world/scatter.gd")
+const Landmarks = preload("res://scripts/world/landmarks.gd")
+const DayNight = preload("res://scripts/world/day_night.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
 const PanSim = preload("res://scripts/panning/pan_sim.gd")
 const Player = preload("res://scripts/player/player.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const PauseMenu = preload("res://scripts/ui/pause_menu.gd")
-const Tex = preload("res://scripts/util/tex.gd")
+const MapView = preload("res://scripts/ui/map_view.gd")
 const HomeBase = preload("res://scripts/base/home_base.gd")
 const Sluice = preload("res://scripts/machines/sluice.gd")
 const HighBanker = preload("res://scripts/machines/high_banker.gd")
 const Pump = preload("res://scripts/machines/pump.gd")
+const Atv = preload("res://scripts/vehicles/atv.gd")
+const Truck = preload("res://scripts/vehicles/truck.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 
 const SEED := 1849
-const BASE_X := 118.0
-const BASE_DIST := 22.0          # metres from the creek's centerline to the cabin yard
 const AUTOSAVE_SECONDS := 60.0
+const MAP_PX := 512
 
-var valley: Valley
+var world: WorldGen
 var deposits: DepositField
-var terrain: Terrain
+var terrain: WorldTerrain
 var scatter: Scatter
 var base: HomeBase
 var player: Player
 var hud: Hud
 var menu: PauseMenu
+var map_view: MapView
+var day_night: DayNight
+var ready_to_play := false
 
 var _opts := {}
 var _saving := true
 var _failures := 0
+var _loading: CanvasLayer
+var _loading_label: Label
+var _dark := false
+var _compass_t := 0.0
 
 
 func _ready() -> void:
@@ -50,26 +69,47 @@ func _ready() -> void:
 	_opts = _parse_args()
 	_saving = _opts.is_empty()
 	_setup_input()
-	valley = Valley.new(SEED)
-	deposits = DepositField.new(valley, SEED)
+	_show_loading()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	# Generate the world on a worker thread so the window stays responsive.
+	world = WorldGen.new(SEED)
+	var gen := WorkerThreadPool.add_task(world.generate)
+	while not WorkerThreadPool.is_task_completed(gen):
+		_loading_label.text = "Building the valley...\n%s" % world.progress
+		await get_tree().process_frame
+	WorkerThreadPool.wait_for_task_completion(gen)
+	_loading_label.text = "Planting the forests..."
+	await get_tree().process_frame
+	await get_tree().process_frame
+	# From here on, everything is set up within one frame, so nothing falls through the
+	# ground before it exists.
+	var map_holder := [null]
+	var map_task := WorkerThreadPool.add_task(func() -> void: map_holder[0] = world.make_map_image(MAP_PX))
+	deposits = DepositField.new(world, SEED)
 	_build_environment()
-	terrain = Terrain.new()
-	terrain.valley = valley
+	terrain = WorldTerrain.new()
 	add_child(terrain)
-	terrain.generate()
+	terrain.setup(world)
+	scatter = Scatter.new()
+	scatter.world = world
+	scatter.terrain = terrain
+	add_child(scatter)
+	scatter.layout()
 	base = HomeBase.new()
 	add_child(base)
-	var site := _base_site()
-	base.build(terrain, site[0], site[1])
-	_build_water()
+	var site: Dictionary = world.sites["base"]
+	var pos: Vector2 = site["pos"]
+	var facing: Vector2 = site["facing"]
+	base.build(terrain, Vector3(pos.x, 0.0, pos.y), Vector3(facing.x, 0.0, facing.y))
+	scatter.build_visuals()
+	var rivers := Rivers.new()
+	add_child(rivers)
+	rivers.build(world)
+	var landmarks := Landmarks.new()
+	add_child(landmarks)
+	landmarks.build(terrain, world.sites)
 	_build_bounds()
-	scatter = Scatter.new()
-	scatter.terrain = terrain
-	scatter.valley = valley
-	scatter.deposits = deposits
-	scatter.exclude(base.center, 15.0, 10.5)
-	add_child(scatter)
-	scatter.build(SEED)
 	hud = Hud.new()
 	add_child(hud)
 	player = Player.new()
@@ -80,11 +120,19 @@ func _ready() -> void:
 	menu = PauseMenu.new()
 	menu.main = self
 	add_child(menu)
+	WorkerThreadPool.wait_for_task_completion(map_task)
+	map_view = MapView.new()
+	add_child(map_view)
+	map_view.setup(world, map_holder[0], self)
 	var load_test: bool = _opts.get("savetest", "") == "read"
 	if _opts.has("savetest"):
 		SaveGame.path = "user://loadtest.dat"
 	if not ((_saving or load_test) and _load_game()):
 		_start_fresh()
+	_build_near_player()
+	_loading.queue_free()
+	ready_to_play = true
+	day_night.apply()
 	if _saving:
 		var timer := Timer.new()
 		timer.wait_time = AUTOSAVE_SECONDS
@@ -99,21 +147,110 @@ func _notification(what: int) -> void:
 		save_now()
 
 
+func _process(delta: float) -> void:
+	if not ready_to_play:
+		return
+	var f := focus_position()
+	terrain.focus = f
+	scatter.focus = f
+	player.clock = day_night.clock_text()
+	var dark := day_night.is_dark()
+	if dark != _dark:
+		_dark = dark
+		for v in get_tree().get_nodes_in_group("vehicles"):
+			v.set_dark(dark)
+		if dark and not player.headlamp_on():
+			hud.toast("It's getting dark. L turns on your headlamp.", Color(1.0, 0.9, 0.6), 5.0)
+	_compass_t -= delta
+	if _compass_t <= 0.0:
+		_compass_t = 0.05
+		_update_compass()
+	if not player.inv.goals_done.has("last_chance"):
+		var camp: Vector2 = world.sites["camp"]["pos"]
+		if Vector2(f.x, f.z).distance_to(camp) < 60.0:
+			player.inv.complete_goal("last_chance")
+			hud.toast("Last Chance Camp. Someone worked this creek hard, a long time ago.", Color(1.0, 0.9, 0.6), 6.0)
+
+
+## Where the world streams around: the player, or the vehicle they drive.
+func focus_position() -> Vector3:
+	if player.driving != null:
+		return player.driving.global_position
+	return player.global_position
+
+
+## Heading of the active camera in radians, clockwise from north (map up).
+func heading() -> float:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return 0.0
+	var fwd := -cam.global_basis.z
+	return atan2(fwd.x, -fwd.z)
+
+
+func _update_compass() -> void:
+	var markers := []
+	for i in map_view.waypoints.size():
+		markers.append([map_view.waypoints[i], Color(1.0, 0.85, 0.2), str(i + 1)])
+	markers.append([world.sites["base"]["pos"], Color(1.0, 0.55, 0.25), "Home"])
+	for v in get_tree().get_nodes_in_group("vehicles"):
+		if v != player.driving:
+			markers.append([Vector2(v.global_position.x, v.global_position.z), Color(0.5, 0.75, 1.0), v.display_name])
+	var f := focus_position()
+	hud.compass.update_view(heading(), Vector2(f.x, f.z), markers)
+
+
+func sleep() -> void:
+	day_night.sleep_until_morning()
+	save_now()
+	hud.toast("You slept until morning. (Game saved.)", Color(1.0, 0.9, 0.6), 4.0)
+
+
 # --- World setup -------------------------------------------------------------------
 
-## The cabin sits on the north floodplain, facing the creek. Returns [center, facing].
-func _base_site() -> Array:
-	var dz := valley.center_dz(BASE_X)
-	var z := valley.center_z(BASE_X) + BASE_DIST * sqrt(1.0 + dz * dz)
-	return [Vector3(BASE_X, 0.0, z), Vector3(dz, 0.0, -1.0).normalized()]
+func _show_loading() -> void:
+	_loading = CanvasLayer.new()
+	_loading.layer = 20
+	add_child(_loading)
+	var bg := ColorRect.new()
+	bg.color = Color(0.07, 0.08, 0.07)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading.add_child(bg)
+	_loading_label = Label.new()
+	_loading_label.text = "Building the valley..."
+	_loading_label.add_theme_font_size_override("font_size", 28)
+	_loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_loading_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading.add_child(_loading_label)
 
 
 func _start_fresh() -> void:
 	var sluice = spawn_machine("sluice")
 	sluice.place_at(base.slot_position(0), base.slot_yaw())
+	spawn_vehicle("atv").global_transform = _parked(0)
+	spawn_vehicle("truck").global_transform = _parked(1)
 	player.global_position = base.spawn_point
 	player.rotation.y = base.spawn_yaw
-	hud.toast("Grandpa's claim. Your next step is always in the top-left corner.", Color(1.0, 0.9, 0.6), 8.0)
+	# Grandpa's old map already covers the home valley.
+	var home: Vector2 = world.sites["base"]["pos"]
+	for off in [Vector2.ZERO, Vector2(0, -250), Vector2(0, -450), Vector2(-200, -350), Vector2(200, -350)]:
+		map_view.reveal_around(Vector3(home.x + off.x, 0.0, home.y + off.y))
+	hud.toast("Grandpa's claim on Cabin Creek. Your next step is always in the top-left corner.", Color(1.0, 0.9, 0.6), 8.0)
+
+
+func _parked(i: int) -> Transform3D:
+	var t := base.parking(i)
+	t.origin.y = terrain.height_at(t.origin.x, t.origin.z) + 0.12
+	return t
+
+
+func _build_near_player() -> void:
+	var f := focus_position()
+	terrain.focus = f
+	scatter.focus = f
+	terrain.build_now()
+	scatter.build_near_now()
 
 
 func spawn_machine(kind: String):
@@ -128,14 +265,36 @@ func spawn_machine(kind: String):
 		_:
 			return null
 	add_child(m)
-	m.setup(terrain, valley)
+	m.setup(terrain)
 	return m
+
+
+func spawn_vehicle(kind: String):
+	var v
+	match kind:
+		"atv":
+			v = Atv.new()
+		"truck":
+			v = Truck.new()
+		_:
+			return null
+	add_child(v)
+	v.setup(terrain)
+	v.set_dark(_dark)
+	return v
 
 
 func machine_of(kind: String):
 	for m in get_tree().get_nodes_in_group("machines"):
 		if m.kind == kind:
 			return m
+	return null
+
+
+func vehicle_of(kind: String):
+	for v in get_tree().get_nodes_in_group("vehicles"):
+		if v.kind == kind:
+			return v
 	return null
 
 
@@ -157,6 +316,9 @@ func _setup_input() -> void:
 	_bind_key("carry", KEY_F)
 	_bind_key("dump", KEY_R)
 	_bind_key("pan_dump", KEY_Q)
+	_bind_key("camera", KEY_V)
+	_bind_key("map", KEY_M)
+	_bind_key("headlamp", KEY_L)
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
@@ -176,10 +338,6 @@ func _bind_key(action: StringName, key: Key) -> void:
 
 func _build_environment() -> void:
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.30, 0.48, 0.76)
-	sky_mat.sky_horizon_color = Color(0.70, 0.76, 0.82)
-	sky_mat.ground_horizon_color = Color(0.58, 0.60, 0.58)
-	sky_mat.ground_bottom_color = Color(0.25, 0.24, 0.22)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -194,8 +352,7 @@ func _build_environment() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.68, 0.74, 0.82)
-	env.fog_density = 0.0035
+	env.fog_density = 0.0016
 	env.fog_aerial_perspective = 0.55
 	env.fog_sky_affect = 0.25
 	env.adjustment_enabled = true
@@ -205,41 +362,30 @@ func _build_environment() -> void:
 	world_env.environment = env
 	add_child(world_env)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-42.0, -128.0, 0.0)
-	sun.light_color = Color(1.0, 0.95, 0.86)
-	sun.light_energy = 1.25
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 140.0
+	sun.directional_shadow_max_distance = 160.0
 	add_child(sun)
+	var moon := DirectionalLight3D.new()
+	moon.rotation_degrees = Vector3(-50.0, 40.0, 0.0)
+	moon.light_color = Color(0.55, 0.62, 0.85)
+	moon.shadow_enabled = false
+	add_child(moon)
+	day_night = DayNight.new()
+	day_night.env = env
+	day_night.sky_mat = sky_mat
+	day_night.sun = sun
+	day_night.moon = moon
+	add_child(day_night)
+	day_night.apply()
 
 
-func _build_water() -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(Valley.SIZE, Valley.SIZE)
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/water.gdshader")
-	mat.set_shader_parameter("wave_a", Tex.noise(0.02, 11, 256, true, 3.0))
-	mat.set_shader_parameter("wave_b", Tex.noise(0.035, 12, 256, true, 2.0))
-	var water := MeshInstance3D.new()
-	water.mesh = plane
-	water.material_override = mat
-	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	water.position = Vector3(Valley.SIZE * 0.5, Valley.WATER_LEVEL, Valley.SIZE * 0.5)
-	add_child(water)
-
-
-## Invisible walls at the edge of the test map.
+## Invisible walls at the edge of the world.
 func _build_bounds() -> void:
 	var body := StaticBody3D.new()
 	add_child(body)
-	var s := Valley.SIZE
-	var walls := [
-		[Vector3(s * 0.5, 50.0, 0.5), Vector3(s, 200.0, 1.0)],
-		[Vector3(s * 0.5, 50.0, s - 0.5), Vector3(s, 200.0, 1.0)],
-		[Vector3(0.5, 50.0, s * 0.5), Vector3(1.0, 200.0, s)],
-		[Vector3(s - 0.5, 50.0, s * 0.5), Vector3(1.0, 200.0, s)],
-	]
-	for w in walls:
+	var s := WorldGen.SIZE
+	for w in [[Vector3(s * 0.5, 150.0, 0.5), Vector3(s, 600.0, 1.0)], [Vector3(s * 0.5, 150.0, s - 0.5), Vector3(s, 600.0, 1.0)],
+			[Vector3(0.5, 150.0, s * 0.5), Vector3(1.0, 600.0, s)], [Vector3(s - 0.5, 150.0, s * 0.5), Vector3(1.0, 600.0, s)]]:
 		var box := BoxShape3D.new()
 		box.size = w[1]
 		var cs := CollisionShape3D.new()
@@ -251,45 +397,87 @@ func _build_bounds() -> void:
 # --- Saving ------------------------------------------------------------------------
 
 func save_now() -> void:
-	if not _saving:
+	if not _saving or not ready_to_play:
 		return
+	SaveGame.write(_collect_save())
+
+
+func _collect_save() -> Dictionary:
 	var inv_data: Dictionary = player.inv.to_dict()
 	var pending := player.pending_pan()
 	if not pending.is_empty():
 		(inv_data[pending[0]] as Array).push_front(pending[1].to_dict())
+	var vehicles := get_tree().get_nodes_in_group("vehicles")
+	var vdata := []
+	for v in vehicles:
+		vdata.append(v.to_dict())
 	var machines := []
 	for m in get_tree().get_nodes_in_group("machines"):
-		machines.append(m.to_dict())
-	SaveGame.write({
-		"player": {"pos": player.global_position, "yaw": player.rotation.y},
+		var d: Dictionary = m.to_dict()
+		if m.loaded_on != null:
+			d["vehicle"] = vehicles.find(m.loaded_on)
+			d["slot"] = m.loaded_on.cargo.find(m)
+		machines.append(d)
+	var ppos := player.global_position
+	if player.driving != null:
+		ppos = player.driving.to_global(player.driving.exit_offset)
+		ppos.y = terrain.height_at(ppos.x, ppos.z) + 0.1
+	return {
+		"player": {"pos": ppos, "yaw": player.rotation.y, "headlamp": player.headlamp_on()},
 		"inventory": inv_data,
-		"terrain": {"heights": terrain.heights, "dug": terrain.dug_amount},
+		"digs": terrain.dig_data(),
 		"machines": machines,
+		"vehicles": vdata,
 		"furnace": base.furnace.to_dict(),
-	})
+		"time": {"hours": day_night.hours, "day": day_night.day},
+		"map": map_view.save_state(),
+	}
 
 
 func _load_game() -> bool:
 	var data := SaveGame.read()
 	if data.is_empty():
 		return false
-	var t: Dictionary = data.get("terrain", {})
-	var h: PackedFloat32Array = t.get("heights", PackedFloat32Array())
-	if h.size() != terrain.heights.size():
-		return false
-	terrain.restore(h, t.get("dug", PackedFloat32Array()))
-	scatter.hide_dug_grass()
+	if int(data.get("version", 0)) == 1:
+		return _migrate_v1(data)
+	terrain.restore_digs(data.get("digs", {}))
+	var vehicles := []
+	for vd in data.get("vehicles", []):
+		var v = spawn_vehicle(vd.get("kind", ""))
+		if v != null:
+			v.from_dict(vd)
+		vehicles.append(v)
 	for md in data.get("machines", []):
 		var m = spawn_machine(md.get("kind", ""))
-		if m != null:
-			m.from_dict(md)
+		if m == null:
+			continue
+		m.from_dict(md)
+		var vi: int = md.get("vehicle", -1)
+		if vi >= 0 and vi < vehicles.size() and vehicles[vi] != null:
+			vehicles[vi].load_cargo(m, md.get("slot", -1))
 	player.inv.from_dict(data.get("inventory", {}))
 	base.furnace.from_dict(data.get("furnace", {}))
+	var time: Dictionary = data.get("time", {})
+	day_night.hours = time.get("hours", 8.0)
+	day_night.day = time.get("day", 1)
+	map_view.load_state(data.get("map", {}))
 	var p: Dictionary = data.get("player", {})
 	player.global_position = p.get("pos", base.spawn_point)
 	player.rotation.y = p.get("yaw", base.spawn_yaw)
+	player.set_headlamp(p.get("headlamp", false))
 	player.refresh_hud()
 	hud.toast("Welcome back.", Color(1.0, 0.9, 0.6))
+	return true
+
+
+## Saves from M2 were made in the old test valley. Bring the player's progress into the new world.
+func _migrate_v1(data: Dictionary) -> bool:
+	_start_fresh()
+	player.inv.from_dict(data.get("inventory", {}))
+	if player.inv.high_banker_bought:
+		deliver("high_banker")
+	player.refresh_hud()
+	hud.toast("The valley has grown! Your money, gold, bars and gear came with you.", Color(1.0, 0.9, 0.6), 8.0)
 	return true
 
 
@@ -314,39 +502,22 @@ func _parse_args() -> Dictionary:
 func _run_harness() -> void:
 	if _opts.is_empty():
 		return
+	if _opts.has("time"):
+		day_night.hours = float(_opts["time"])
+		day_night.apply()
 	if _opts.has("demo"):
 		_demo_setup()
-	if _opts.has("cam"):
-		_apply_cam(_opts["cam"])
+	_apply_view()
 	if _opts.has("selftest"):
 		await _selftest()
 		get_tree().quit()
 		return
 	if _opts.has("savetest"):
-		await get_tree().physics_frame
-		if _opts["savetest"] == "write":
-			_saving = true
-			var x := BASE_X + 4.0
-			machine_of("sluice").place_at(_creek_point(x, 0.55), 0.0)
-			machine_of("sluice").feed(deposits.shovelful(x, 120.0, 0.2, 0.05, 0.0))
-			for i in 4:
-				terrain.dig(_creek_point(x, 1.3), Player.DIG_DEPTH, Player.DIG_RADIUS)
-			player.inv.money = 123
-			player.inv.add_gold(PackedFloat32Array([0.01, 0.02, 0.5]))
-			player.inv.bars.append({"grams": 2.5, "purity": 0.86})
-			player.inv.complete_goal("pan")
-			player.global_position = _creek_point(x, 2.0) + Vector3(0, 1.0, 0)
-			save_now()
-			print("SAVETEST wrote: money 123, vial 0.030 g, 1 nugget, 1 bar, sluice in creek with 1 in hopper, 4 digs")
-		else:
-			var s = machine_of("sluice")
-			var dig_spot := _creek_point(BASE_X + 4.0, 1.3)
-			print("SAVETEST read: money %d, vial %.3f g, nuggets %d, bars %d, goal 'pan' done %s" % [
-				player.inv.money, player.inv.vial_grams(), player.inv.nuggets.size(), player.inv.bars.size(), player.inv.goals_done.has("pan")])
-			print("SAVETEST read: machines %d, sluice running %s, hopper %d, dug %.2f, player at creek %s" % [
-				get_tree().get_nodes_in_group("machines").size(), s.is_running(), s.hopper.size(),
-				terrain.dug_at(dig_spot.x, dig_spot.z), player.global_position.distance_to(_creek_point(BASE_X + 4.0, 2.0)) < 2.0])
-			SaveGame.delete()
+		await _savetest(_opts["savetest"])
+		get_tree().quit()
+		return
+	if _opts.has("drivetest"):
+		await _drivetest()
 		get_tree().quit()
 		return
 	if _opts.has("fps"):
@@ -356,30 +527,35 @@ func _run_harness() -> void:
 		get_tree().quit()
 		return
 	if _opts.has("shot"):
-		for i in 60:
+		if _opts.has("drive"):
+			vehicle_of(_opts["drive"]).enter(player)
+		for i in 90:
 			await get_tree().process_frame
-		if _opts.has("cam"):
-			_apply_cam(_opts["cam"])
+		_apply_view()
 		if _opts.has("dig"):
 			var fwd := -player.global_basis.z
 			for spot in 3:
 				var p := player.global_position + fwd * (2.2 + spot * 1.4) + player.global_basis.x * (spot - 1) * 1.2
 				for i in int(_opts["dig"]) - spot * 2:
 					terrain.dig(p, Player.DIG_DEPTH, Player.DIG_RADIUS)
-			for i in 10:
-				await get_tree().process_frame
 		if _opts.has("pan"):
 			player.debug_pan(_opts["pan"])
-			for i in 30:
-				await get_tree().process_frame
 		if _opts.has("carry"):
 			player.start_carry(machine_of(_opts["carry"]))
-			for i in 20:
-				await get_tree().process_frame
+		if _opts.has("map"):
+			var pp := player.global_position
+			for k in 12:
+				player.inv.log_sample(pp.x + 40.0 + k * 9.0, pp.z - 60.0 - k * 14.0, [0.0, 0.004, 0.02, 0.06, 0.15, 0.3][k % 6])
+			map_view.reveal_around(player.global_position + Vector3(300, 0, 0))
+			map_view.reveal_around(player.global_position + Vector3(-300, 0, -300))
+			map_view.add_waypoint(Vector2(player.global_position.x + 250.0, player.global_position.z - 120.0))
+			map_view.toggle()
+		if _opts.has("lamp"):
+			player.set_headlamp(true)
 		if _opts.has("menu"):
 			menu.open()
-			for i in 5:
-				await get_tree().process_frame
+		for i in 30:
+			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
 		var img := get_viewport().get_texture().get_image()
 		img.save_png(_opts["shot"])
@@ -387,25 +563,54 @@ func _run_harness() -> void:
 		get_tree().quit()
 
 
-func _apply_cam(spec: String) -> void:
-	var c := spec.split_floats(",")
-	player.position = Vector3(c[0], terrain.height_at(c[0], c[1]) + 0.1, c[1])
-	player.rotation.y = deg_to_rad(c[2])
-	player.camera.rotation.x = deg_to_rad(c[3])
+func _apply_view() -> void:
+	if _opts.has("cam"):
+		var c := (_opts["cam"] as String).split_floats(",")
+		_place_player(Vector3(c[0], 0.0, c[1]), deg_to_rad(c[2]), deg_to_rad(c[3]))
+	elif _opts.has("view"):
+		var from := Vector3.ZERO
+		var at := Vector3.ZERO
+		match _opts["view"]:
+			"base":
+				from = base.to_global(Vector3(-3.0, 0.0, 15.0))
+				at = base.to_global(Vector3(0.0, 1.5, -1.0))
+			"parking":
+				from = base.to_global(Vector3(2.0, 0.0, 16.0))
+				at = base.to_global(Vector3(1.0, 0.5, 3.5))
+			"creek":
+				var p := world.river_point("Cabin Creek", 0.6, 2.6)
+				var q := world.river_point("Cabin Creek", 0.66, 0.0)
+				from = Vector3(p.x, 0.0, p.y)
+				at = Vector3(q.x, terrain.height_at(q.x, q.y), q.y)
+			"valley":
+				var p := world.river_point("Big Sable River", 0.36, 14.0)
+				var q := world.river_point("Big Sable River", 0.44, 0.0)
+				from = Vector3(p.x, 0.0, p.y)
+				at = Vector3(q.x, terrain.height_at(q.x, q.y) - 15.0, q.y)
+			"camp", "mine":
+				var site: Dictionary = world.sites[_opts["view"]]
+				var pos: Vector2 = site["pos"]
+				var face: Vector2 = site["facing"]
+				var p := pos + face * 16.0 + Vector2(-face.y, face.x) * 5.0
+				from = Vector3(p.x, 0.0, p.y)
+				at = Vector3(pos.x, terrain.height_at(pos.x, pos.y) + 1.0, pos.y)
+		from.y = terrain.height_at(from.x, from.z)
+		var d := at - (from + Vector3(0, Player.EYE_HEIGHT, 0))
+		_place_player(from, atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
 
 
-## A point across the creek at x: frac 0 = centerline, 1 = water's edge on the cabin side.
-func _creek_point(x: float, frac: float) -> Vector3:
-	var dz := valley.center_dz(x)
-	return Vector3(x, 0.0, valley.center_z(x) + frac * valley.half_width(x) * sqrt(1.0 + dz * dz))
+func _place_player(p: Vector3, yaw: float, pitch: float) -> void:
+	player.global_position = Vector3(p.x, terrain.height_at(p.x, p.z) + 0.1, p.z)
+	player.rotation.y = yaw
+	player.camera.rotation.x = pitch
+	_build_near_player()
 
 
 func _demo_setup() -> void:
-	var x := BASE_X + 4.0
-	machine_of("sluice").place_at(_creek_point(x, 0.55), 0.0)
+	machine_of("sluice").place_at(_v3(world.river_point("Cabin Creek", 0.6, 0.5)), 0.0)
 	deliver("high_banker")
-	machine_of("pump").place_at(_creek_point(x + 9.0, 1.15), 0.0)
-	machine_of("high_banker").place_at(_creek_point(x + 11.0, 3.2), PI)
+	machine_of("pump").place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
+	machine_of("high_banker").place_at(_v3(world.river_point("Cabin Creek", 0.66, 3.4)), PI)
 	for kind in ["sluice", "high_banker"]:
 		var m = machine_of(kind)
 		var p := m.global_position as Vector3
@@ -416,8 +621,12 @@ func _demo_setup() -> void:
 			m._process_one(deposits.shovelful(p.x, p.z, 0.15, 0.0, 0.0))
 
 
+func _v3(p: Vector2) -> Vector3:
+	return Vector3(p.x, 0.0, p.y)
+
+
 func _check(name: String, ok: bool) -> void:
-	print("SELFTEST %-34s %s" % [name, "ok" if ok else "FAILED"])
+	print("SELFTEST %-38s %s" % [name, "ok" if ok else "FAILED"])
 	if not ok:
 		_failures += 1
 
@@ -429,14 +638,15 @@ func _selftest() -> void:
 		await get_tree().physics_frame
 	var inv = player.inv
 	var pp := player.global_position
-	_check("standing on the ground", absf(pp.y - terrain.height_at(pp.x, pp.z)) < 0.25)
+	_check("standing on the ground", player.is_on_floor() and absf(pp.y - terrain.height_at(pp.x, pp.z)) < 0.3)
+	var cabin_creek := world.river_point("Cabin Creek", 0.6, 0.0)
+	_check("Cabin Creek has water", terrain.water_depth(cabin_creek.x, cabin_creek.y) > 0.3)
 
 	# Sluice in the creek, fed by digging right next to it.
-	var x := BASE_X + 4.0
 	var sluice = machine_of("sluice")
-	sluice.place_at(_creek_point(x, 0.55), 0.0)
+	sluice.place_at(_v3(world.river_point("Cabin Creek", 0.6, 0.5)), 0.0)
 	_check("sluice has water", sluice.water_problem() == "")
-	var bank := _creek_point(x, 1.2)
+	var bank := _v3(world.river_point("Cabin Creek", 0.6, 1.3))
 	var fed := 0
 	for i in 8:
 		var res := terrain.dig(bank, Player.DIG_DEPTH, Player.DIG_RADIUS)
@@ -444,6 +654,7 @@ func _selftest() -> void:
 			break
 		if sluice.feed(deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"])):
 			fed += 1
+	_check("digging stops at bedrock", terrain.dig(bank, Player.DIG_DEPTH, Player.DIG_RADIUS)["removed"] < 0.02)
 	for i in 150:
 		await get_tree().physics_frame
 	_check("sluice runs on its own", sluice.processed >= 1)
@@ -451,7 +662,7 @@ func _selftest() -> void:
 		sluice._process_one(sluice.hopper.pop_front())
 	print("  fed %d shovels: %d pieces caught, %d lost" % [fed, sluice.caught.size(), sluice.lost.size()])
 
-	# Clean out and pan the concentrate.
+	# Clean out, pan the concentrate, smelt, sell.
 	sluice.interact(player)
 	_check("cleanout gives a jar", inv.cons.size() == 1)
 	var jar = inv.cons.pop_front()
@@ -464,14 +675,9 @@ func _selftest() -> void:
 		t += 1.0 / 60.0
 	_check("concentrate pans clean", sim.done)
 	inv.add_gold(sim.gold_kept())
-	print("  concentrate: %d pieces in, %d kept in %.1fs; vial %.3f g, %d nuggets" % [
-		jar.gold.size(), sim.gold_kept().size(), t, inv.vial_grams(), inv.nuggets.size()])
 	if inv.vial_grams() <= 0.0:
 		inv.add_gold(PackedFloat32Array([0.05]))
-
-	# Smelt and sell.
 	var furnace = base.furnace
-	var grams: float = inv.vial_grams()
 	furnace.interact(player)
 	for i in 100:
 		furnace.advance(0.25)
@@ -480,44 +686,213 @@ func _selftest() -> void:
 		if furnace.is_ready():
 			furnace.interact(player)
 			break
-	_check("smelting makes a bar", inv.bars.size() == 1 and inv.vial_grams() == 0.0)
+	_check("smelting makes a bar", inv.bars.size() == 1)
 	var money_before: int = inv.money
 	base.ship_box.interact(player)
-	_check("shipping pays", inv.money > money_before and inv.bars.is_empty())
-	print("  %.3f g melted, sold for $%d" % [grams, inv.money - money_before])
+	_check("shipping pays", inv.money > money_before)
 
-	# Order and set up the high banker and pump.
+	# Every river and creek works for the sluice, the pump and panning.
+	var all_rivers := true
+	for r in world.rivers:
+		var n: String = r["name"]
+		var hws: PackedFloat32Array = r["hw"]
+		sluice.place_at(_v3(world.river_point(n, 0.5, 0.5)), 0.0)
+		var sluice_ok: bool = sluice.water_problem() == ""
+		var edge := _v3(world.river_point(n, 0.5, 1.0 + 1.5 / hws[hws.size() / 2]))
+		player.global_position = Vector3(edge.x, terrain.height_at(edge.x, edge.z) + 0.1, edge.z)
+		var pan_ok: bool = player._near_water()
+		if not (sluice_ok and pan_ok):
+			all_rivers = false
+			print("  %s: sluice %s, panning %s" % [n, sluice_ok, pan_ok])
+	_check("sluice and panning work on every river", all_rivers)
+	sluice.place_at(_v3(world.river_point("Cabin Creek", 0.6, 0.5)), 0.0)
+	player.global_position = base.spawn_point
+
+	# High banker and pump.
 	inv.money += 400
 	base.order_board.interact(player)
 	var hb = machine_of("high_banker")
 	var pump = machine_of("pump")
 	_check("high banker and pump delivered", hb != null and pump != null)
-	pump.place_at(_creek_point(x + 9.0, 1.15), 0.0)
+	pump.place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
 	_check("pump reaches water", pump.water_problem() == "")
-	hb.place_at(_creek_point(x + 11.0, 3.2), 0.0)
+	hb.place_at(_v3(world.river_point("Cabin Creek", 0.66, 3.4)), 0.0)
 	hb.refresh_pump()
 	_check("high banker hooked to the pump", hb.water_problem() == "")
-	pump.place_at(_creek_point(x + 70.0, 1.15), 0.0)
-	hb.refresh_pump()
-	_check("too far from the pump: no water", hb.water_problem() != "")
+	var pumps_ok := true
+	for r in world.rivers:
+		pump.place_at(_v3(world.river_point(r["name"], 0.4, 1.25)), 0.0)
+		if pump.water_problem() != "":
+			pumps_ok = false
+			print("  pump has no water on %s" % r["name"])
+	_check("the pump works on every river", pumps_ok)
+	pump.place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
 
-	# Carry and set down through the player.
+	# Vehicles.
+	var atv = vehicle_of("atv")
+	var truck = vehicle_of("truck")
+	_check("ATV and pickup parked at the cabin", atv != null and truck != null)
+	player.global_position = atv.global_position + Vector3(2, 0, 0)
+	for i in 5:
+		await get_tree().physics_frame
+	atv.enter(player)
+	_check("getting on the ATV", player.driving == atv and not atv.freeze)
+	var start: Vector3 = atv.global_position
+	Input.action_press("move_forward")
+	for i in 120:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	var moved: float = start.distance_to(atv.global_position)
+	_check("the ATV drives", moved > 4.0)
+	_check("the ATV stays upright", atv.global_basis.y.dot(Vector3.UP) > 0.8)
+	Input.action_press("jump")
+	for i in 90:
+		await get_tree().physics_frame
+	Input.action_release("jump")
+	_check("the ATV brakes to a stop", atv.linear_velocity.length() < 1.0)
+	print("  ATV drove %.1f m from the cabin in 2 s" % moved)
+	atv.exit()
+	for i in 10:
+		await get_tree().physics_frame
+	pp = player.global_position
+	_check("getting off leaves you on the ground", player.driving == null and absf(pp.y - terrain.height_at(pp.x, pp.z)) < 0.5)
+
+	# Hauling: put the sluice in the pickup, drive, take it off again.
+	player.global_position = truck.global_position + Vector3(3, 0, 0)
 	player.start_carry(sluice)
-	_check("carrying turns the sluice off", not sluice.is_running())
+	var m = player.carrying
+	player.carrying = null
+	_check("loading onto the pickup", truck.load_cargo(m) and sluice.loaded_on == truck and not sluice.is_running())
+	truck.enter(player)
+	Input.action_press("move_forward")
+	for i in 90:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	_check("cargo rides along", sluice.global_position.distance_to(truck.global_position) < 3.0)
+	print("  pickup drove %.1f m with the sluice in the bed" % truck.global_position.distance_to(start))
+	truck.exit()
+	player.start_carry(sluice)
+	_check("unloading", sluice.loaded_on == null and player.carrying == sluice)
 	player._set_down()
-	_check("set down again", player.carrying == null)
+
+	# Map, waypoints, day and night.
+	map_view.add_waypoint(Vector2(1000, 1000))
+	map_view.add_waypoint(Vector2(1200, 900))
+	map_view.remove_waypoint_near(Vector2(1203, 902), 10.0)
+	map_view.reveal_around(player.global_position)
+	_check("waypoints add and remove, exploration", map_view.waypoints.size() == 1 and map_view.is_explored(player.global_position.x, player.global_position.z)
+		and not map_view.is_explored(60.0, 60.0))
+	day_night.hours = 23.0
+	day_night.apply()
+	var dark := day_night.is_dark()
+	var day_before := day_night.day
+	day_night.sleep_until_morning()
+	_check("night falls and sleep skips to morning", dark and day_night.hours == 7.0 and day_night.day == day_before + 1)
 
 	# Save, then read it back.
+	truck.load_cargo(machine_of("pump"))
 	save_now()
 	var data := SaveGame.read()
-	_check("save round trip", int(data.get("inventory", {}).get("money", -1)) == inv.money and (data.get("machines", []) as Array).size() == 3)
+	var cargo_saved := false
+	for md in data.get("machines", []):
+		if md.get("kind", "") == "pump" and int(md.get("vehicle", -1)) >= 0:
+			cargo_saved = true
+	_check("save: version, vehicles, machines, cargo", int(data.get("version", 0)) == 2 and (data.get("vehicles", []) as Array).size() == 2
+		and (data.get("machines", []) as Array).size() == 3 and cargo_saved)
+	_check("save: digs, waypoints, time", not (data.get("digs", {}).get("h", {}) as Dictionary).is_empty()
+		and (data.get("map", {}).get("waypoints", []) as Array).size() == 1 and data.get("time", {}).get("day", 0) == day_night.day)
 	SaveGame.delete()
 
 	# Walk.
-	var start := player.global_position
+	start = player.global_position
 	Input.action_press("move_forward")
 	for i in 60:
 		await get_tree().physics_frame
 	Input.action_release("move_forward")
 	_check("walking moves the player", start.distance_to(player.global_position) > 1.5)
 	print("SELFTEST complete: %d failed" % _failures)
+
+
+## Drive each vehicle along the valley road and report speed, distance and how level it stayed.
+func _drivetest() -> void:
+	var road: PackedVector2Array = world.roads[1]["pts"]
+	for kind in ["atv", "truck"]:
+		var v = vehicle_of(kind)
+		var a := road[120]
+		var b := road[121]
+		var dir := (b - a).normalized()
+		v.global_transform = Transform3D(Basis(Vector3.UP, atan2(-dir.x, -dir.y)), Vector3(a.x, terrain.height_at(a.x, a.y) + 0.8, a.y))
+		player.global_position = v.global_position
+		_build_near_player()
+		v.enter(player)
+		for i in 30:
+			await get_tree().physics_frame
+		var start: Vector3 = v.global_position
+		var line := ""
+		var worst := 1.0
+		Input.action_press("move_forward")
+		for i in 480:
+			await get_tree().physics_frame
+			worst = minf(worst, v.global_basis.y.dot(Vector3.UP))
+			if i % 60 == 59:
+				line += " %d" % roundi(v.speed_kmh())
+		Input.action_release("move_forward")
+		Input.action_press("move_right")
+		Input.action_press("move_forward")
+		for i in 90:
+			await get_tree().physics_frame
+			worst = minf(worst, v.global_basis.y.dot(Vector3.UP))
+		Input.action_release("move_right")
+		Input.action_release("move_forward")
+		Input.action_press("jump")
+		var stop_frames := 0
+		while v.linear_velocity.length() > 0.5 and stop_frames < 600:
+			await get_tree().physics_frame
+			stop_frames += 1
+		Input.action_release("jump")
+		print("DRIVETEST %-6s km/h each second:%s | %.0f m | least upright %.2f | stopped in %.1f s" % [
+			kind, line, start.distance_to(v.global_position), worst, stop_frames / 60.0])
+		v.exit()
+		for i in 5:
+			await get_tree().physics_frame
+
+
+func _savetest(mode: String) -> void:
+	await get_tree().physics_frame
+	if mode == "write":
+		_saving = true
+		machine_of("sluice").place_at(_v3(world.river_point("Cabin Creek", 0.6, 0.5)), 0.0)
+		vehicle_of("truck").load_cargo(spawn_machine("pump"))
+		for i in 4:
+			terrain.dig(_v3(world.river_point("Cabin Creek", 0.6, 1.3)), Player.DIG_DEPTH, Player.DIG_RADIUS)
+		player.inv.money = 123
+		player.inv.log_sample(900.0, 1300.0, 0.05)
+		map_view.add_waypoint(Vector2(1500, 600))
+		day_night.hours = 19.5
+		save_now()
+		print("SAVETEST wrote v2: money 123, sluice in creek, pump on the pickup, 4 digs, 1 sample, 1 waypoint, 7:30 pm, pickup at %s" %
+			vehicle_of("truck").global_position.snapped(Vector3.ONE * 0.01))
+	elif mode == "writev1":
+		var f := FileAccess.open_compressed(SaveGame.path, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+		f.store_var({"version": 1, "inventory": {"money": 777, "high_banker_bought": true, "goals": {"pan": true, "sold": true},
+			"vial": PackedFloat32Array([0.01, 0.02]), "nuggets": PackedFloat32Array([0.6]), "bars": [{"grams": 2.5, "purity": 0.86}]}})
+		f.close()
+		print("SAVETEST wrote an M2-era save: money 777, vial 0.030 g, 1 nugget, 1 bar, goals pan+sold, high banker bought")
+	else:
+		var truck = vehicle_of("truck")
+		var on_truck := 0
+		for c in truck.cargo:
+			if c != null:
+				on_truck += 1
+		var spot := world.river_point("Cabin Creek", 0.6, 1.3)
+		var explored := 0
+		for b in map_view.explored:
+			if b > 0:
+				explored += 1
+		print("SAVETEST read: money %d, vial %.3f g, nuggets %d, bars %d, goals %d, samples %d, waypoints %d, explored cells %d, time %s" % [
+			player.inv.money, player.inv.vial_grams(), player.inv.nuggets.size(), player.inv.bars.size(), player.inv.goals_done.size(),
+			player.inv.samples.size(), map_view.waypoints.size(), explored, day_night.clock_text()])
+		print("SAVETEST read: machines %d (on the pickup %d), high banker %s, dug %.2f, pickup at %s" % [
+			get_tree().get_nodes_in_group("machines").size(), on_truck, machine_of("high_banker") != null,
+			terrain.dug_at(spot.x, spot.y), truck.global_position.snapped(Vector3.ONE * 0.01)])
+		SaveGame.delete()

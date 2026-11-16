@@ -21,6 +21,15 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
   - `--demo` puts the sluice in the creek and sets up the high banker and pump by the cabin. Good camera spots: cabin `--cam=111.2,134.2,-145.4,-6`; equipment `--cam=125,133,-10,-14`.
 - Frame rate: `godot --path . -- --fps [--cam=...]`
 
+## M3 additions (big world)
+- More checks: `tests/test_world.gd` (generation, roads, `-- --map=<png>` saves the map image), `-- --drivetest`, `-- --savetest=write|writev1|read`.
+- Screenshot views: `--view=base|parking|creek|valley|camp|mine`, plus `--time=<hour>`, `--drive=atv|truck`, `--map`, `--lamp`.
+- `scripts/world/world_gen.gd` is the single source of truth for the land: rivers, fields, roads, pads; `surface()`/`sample()` are thread-safe. `world_terrain.gd` streams it (quadtree render nodes, 32 m collision tiles, dig tiles), `rivers.gd` builds water ribbons, `scatter.gd` streams grass/colliders, `day_night.gd`, `landmarks.gd`.
+- `scripts/vehicles/`: `vehicle.gd` (raycast suspension, cargo slots), `atv.gd`, `truck.gd`. `scripts/ui/map_view.gd`, `compass.gd`.
+- Gotcha: fields that are interpolated separately (weight and height) must both be valid past the edge of a band, or blending punches pits (see `_stamp_band`).
+- Gotcha: packed arrays passed to functions are copies; write results back to the member.
+- The old `valley.gd` / `terrain.gd` are gone; ignore mentions of them below.
+
 ## Code layout
 - `scripts/main.gd`: builds the world, spawns machines, save/load, and the test harness flags above.
 - `scripts/world/`: `valley.gd` (creek, bars, bench), `terrain.gd` (deformable chunked heightmap with a bedrock floor; `dig`, `flatten`, `restore`), `scatter.gd` (rocks, trees, grass; exclusion zones).

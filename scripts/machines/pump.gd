@@ -30,16 +30,17 @@ func outlet_point() -> Vector3:
 
 ## A spot in the creek the intake hose can reach, or Vector3.INF.
 func _water_point() -> Vector3:
+	if loaded_on != null:
+		return Vector3.INF
 	var p := global_position
-	var level := Valley.WATER_LEVEL - 0.1
-	if terrain.height_at(p.x, p.z) < level:
-		return Vector3(p.x, Valley.WATER_LEVEL - 0.15, p.z)
+	if terrain.water_depth(p.x, p.z) > 0.1:
+		return Vector3(p.x, terrain.water_level(p.x, p.z) - 0.15, p.z)
 	for ring: float in [1.2, REACH]:
 		for k in 12:
 			var a := TAU * k / 12.0
 			var q := p + Vector3(cos(a), 0.0, sin(a)) * ring
-			if terrain.height_at(q.x, q.z) < level:
-				return Vector3(q.x, Valley.WATER_LEVEL - 0.15, q.z)
+			if terrain.water_depth(q.x, q.z) > 0.1:
+				return Vector3(q.x, terrain.water_level(q.x, q.z) - 0.15, q.z)
 	return Vector3.INF
 
 

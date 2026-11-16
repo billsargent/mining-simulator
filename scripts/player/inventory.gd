@@ -14,6 +14,10 @@ const GOALS = [
 	["sold", "Ship the bar in the gold buyer's box in front of the porch (E)."],
 	["high_banker", "Save up $350 and order a high banker at the order board on the cabin."],
 	["hb_running", "Set the pump at the creek's edge and the high banker on the bank, then feed it."],
+	["drive", "Hop on the ATV or the pickup parked by the cabin (E) and take it for a spin."],
+	["haul", "Carry a machine to a vehicle and set it on the rack or in the bed (left mouse)."],
+	["map", "Open the map (M) and drop a waypoint where you want to go (left click)."],
+	["last_chance", "Find the old camp on Last Chance Creek. The old-timers said that creek was rich."],
 ]
 
 var money := 0
@@ -25,6 +29,11 @@ var bars: Array = []                    # {"grams": float, "purity": float}
 var pans := 0
 var high_banker_bought := false
 var goals_done := {}
+var samples := PackedVector3Array()     # test pans for the map: x, z, grams
+
+
+func log_sample(x: float, z: float, grams: float) -> void:
+	samples.append(Vector3(x, z, grams))
 
 
 func add_gold(pieces: PackedFloat32Array) -> void:
@@ -68,14 +77,14 @@ func next_goal() -> String:
 	for g in GOALS:
 		if not goals_done.has(g[0]):
 			return g[1]
-	return "That's everything in this build. Keep prospecting: the old bench up the north hill is rich."
+	return "That's everything in this build. Keep prospecting: the old bench above Cabin Creek is rich."
 
 
 func to_dict() -> Dictionary:
 	return {
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
-		"high_banker_bought": high_banker_bought, "goals": goals_done,
+		"high_banker_bought": high_banker_bought, "goals": goals_done, "samples": samples,
 	}
 
 
@@ -89,6 +98,7 @@ func from_dict(d: Dictionary) -> void:
 	pans = d.get("pans", 0)
 	high_banker_bought = d.get("high_banker_bought", false)
 	goals_done = d.get("goals", {})
+	samples = d.get("samples", PackedVector3Array())
 
 
 static func _sum(a: PackedFloat32Array) -> float:

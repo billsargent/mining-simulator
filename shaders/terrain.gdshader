@@ -1,12 +1,13 @@
-// Ground: grass, creek gravel, freshly dug dirt, exposed bedrock and rocky slopes.
-// Vertex color carries per-vertex data from terrain.gd:
-//   r = dug (disturbed ground), g = bedrock exposed, b = bare gravel (creek bed / bars)
+// Ground: grass, creek gravel, roads, freshly dug dirt, exposed bedrock and rocky slopes.
+// Vertex color carries per-vertex data from world_terrain.gd:
+//   r = dug (disturbed ground), g = bedrock exposed, b = bare gravel (creek bed, bars, roads),
+//   a = height above the local water, (h - water + 0.5) / 3, so 1 means far from any water
+// Culling is off so the skirts that hide seams between detail levels always draw.
 shader_type spatial;
-render_mode diffuse_burley, specular_schlick_ggx;
+render_mode diffuse_burley, specular_schlick_ggx, cull_disabled;
 
 uniform sampler2D noise_large : filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_detail : filter_linear_mipmap, repeat_enable;
-uniform float water_level = 0.08;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -39,7 +40,7 @@ void fragment() {
 	float rocky = max(smoothstep(0.42, 0.62, slope + (mid - 0.5) * 0.15), COLOR.g);
 	col = mix(col, rock, rocky);
 
-	float wet = 1.0 - smoothstep(water_level - 0.02, water_level + 0.25, world_pos.y);
+	float wet = 1.0 - smoothstep(0.16, 0.26, COLOR.a);
 	col *= mix(1.0, 0.5, wet);
 
 	// Colors above are picked in sRGB; the renderer works in linear light.

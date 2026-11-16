@@ -14,7 +14,7 @@ func _init() -> void:
 
 
 func water_problem() -> String:
-	var depth := Valley.WATER_LEVEL - terrain.height_at(global_position.x, global_position.z)
+	var depth := terrain.water_depth(global_position.x, global_position.z)
 	if depth < 0.08:
 		return "set it in the creek"
 	if depth > 0.9:
@@ -24,10 +24,12 @@ func water_problem() -> String:
 
 func place_at(pos: Vector3, yaw: float) -> void:
 	var ground := terrain.height_at(pos.x, pos.z)
-	if Valley.WATER_LEVEL - ground >= 0.08:
+	var level := terrain.water_level(pos.x, pos.z)
+	if level - ground >= 0.08:
 		# In the creek: line up with the current and sit just under the surface.
-		rotation = Vector3(0.0, atan2(-valley.center_dz(pos.x), 1.0), 0.0)
-		global_position = Vector3(pos.x, maxf(ground, Valley.WATER_LEVEL - 0.14), pos.z)
+		var flow := terrain.world.flow_dir(pos.x, pos.z)
+		rotation = Vector3(0.0, atan2(-flow.y, flow.x), 0.0)
+		global_position = Vector3(pos.x, maxf(ground, level - 0.14), pos.z)
 	else:
 		rotation = Vector3(0.0, yaw + PI / 2.0, 0.0)
 		global_position = Vector3(pos.x, ground, pos.z)

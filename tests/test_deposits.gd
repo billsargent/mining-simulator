@@ -1,62 +1,59 @@
 extends SceneTree
-## Prints how much gold a shovelful holds in different parts of the valley, near the
-## surface and near bedrock, so the gold distribution can be tuned.
+## Prints how much gold a shovelful holds near each river and creek, at the surface and near
+## bedrock, plus the bench and the hills, so the gold distribution can be tuned.
 ## Run: godot --headless --path . --script res://tests/test_deposits.gd
 
-const Valley = preload("res://scripts/world/valley.gd")
+const WorldGen = preload("res://scripts/world/world_gen.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
 
-const SAMPLES := 400
+const SAMPLES := 300
 
 
 func _initialize() -> void:
-	var valley := Valley.new(1849)
-	var field := DepositField.new(valley, 1849)
+	var world := WorldGen.new(1849)
+	world.generate()
+	var field := DepositField.new(world, 1849)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
-	var zones := {
-		"channel": [], "inside bar (edge)": [], "outside bank": [],
-		"floodplain": [], "bench": [], "hills": [],
-	}
+	print("Grams per shovelful (pieces): surface / bedrock")
+	for r in world.rivers:
+		var pts: PackedVector2Array = r["pts"]
+		var bars: Array[Vector2] = []
+		var channel: Array[Vector2] = []
+		for i in SAMPLES:
+			var t := rng.randf_range(0.08, 0.92)
+			bars.append(world.river_point(r["name"], t, rng.randf_range(1.1, 1.6) * (1.0 if rng.randf() < 0.5 else -1.0)))
+			channel.append(world.river_point(r["name"], t, rng.randf_range(-0.8, 0.8)))
+		print("  %-18s channel %s   banks %s" % [r["name"], _zone(world, field, channel), _zone(world, field, bars)])
+	var bench: Array[Vector2] = []
+	var hills: Array[Vector2] = []
 	var tries := 0
-	while tries < 200000:
+	while (bench.size() < SAMPLES or hills.size() < SAMPLES) and tries < 400000:
 		tries += 1
-		var x := rng.randf_range(5.0, 250.0)
-		var z := rng.randf_range(5.0, 250.0)
-		var g := valley.geometry(x, z)
-		var zone := ""
-		if g.y < 0.0:
-			zone = "channel"
-		elif g.y < 3.0 and g.z > 0.5:
-			zone = "inside bar (edge)"
-		elif g.y < 3.0 and g.w > 0.5:
-			zone = "outside bank"
-		elif g.y > 8.0 and g.y < 20.0 and valley.bench_mask(g.x) < 0.1:
-			zone = "floodplain"
-		elif g.x > 0.0 and valley.bench_mask(g.x) > 0.9:
-			zone = "bench"
-		elif g.y > 45.0:
-			zone = "hills"
-		if zone == "" or (zones[zone] as Array).size() >= SAMPLES:
-			continue
-		(zones[zone] as Array).append(Vector2(x, z))
-	print("Grams per shovelful (pieces) by zone")
-	for zone in zones:
-		var pts: Array = zones[zone]
-		var top_g := 0.0
-		var top_n := 0
-		var deep_g := 0.0
-		var deep_n := 0
-		for p: Vector2 in pts:
-			var s := valley.sample(p.x, p.y)
-			var bed := s.x - s.y
-			var surface := field.shovelful(p.x, p.y, s.x, s.x - 0.15, bed)
-			var deep := field.shovelful(p.x, p.y, bed + 0.15, bed, bed)
-			top_g += surface.gold_grams()
-			top_n += surface.gold.size()
-			deep_g += deep.gold_grams()
-			deep_n += deep.gold.size()
-		var n := maxi(pts.size(), 1)
-		print("  %-18s surface %.3f g (%.1f)   bedrock %.3f g (%.1f)   [%d samples]" % [
-			zone, top_g / n, float(top_n) / n, deep_g / n, float(deep_n) / n, pts.size()])
+		var x := rng.randf_range(10.0, 2038.0)
+		var z := rng.randf_range(10.0, 2038.0)
+		if world.bench_weight(x, z) > 0.9 and bench.size() < SAMPLES:
+			bench.append(Vector2(x, z))
+		elif world.river_info(x, z).x > 1.0e5 and world.bench_weight(x, z) < 0.01 and hills.size() < SAMPLES:
+			hills.append(Vector2(x, z))
+	print("  %-18s %s" % ["old bench", _zone(world, field, bench)])
+	print("  %-18s %s" % ["hills", _zone(world, field, hills)])
 	quit()
+
+
+func _zone(world: WorldGen, field: DepositField, pts: Array[Vector2]) -> String:
+	var top_g := 0.0
+	var top_n := 0
+	var deep_g := 0.0
+	var deep_n := 0
+	for p in pts:
+		var s := world.sample(p.x, p.y)
+		var bed := s.x - s.w
+		var surface := field.shovelful(p.x, p.y, s.x, s.x - 0.15, bed)
+		var deep := field.shovelful(p.x, p.y, bed + 0.15, bed, bed)
+		top_g += surface.gold_grams()
+		top_n += surface.gold.size()
+		deep_g += deep.gold_grams()
+		deep_n += deep.gold.size()
+	var n := float(maxi(pts.size(), 1))
+	return "%.3f g (%.1f) / %.3f g (%.1f)" % [top_g / n, top_n / n, deep_g / n, deep_n / n]
