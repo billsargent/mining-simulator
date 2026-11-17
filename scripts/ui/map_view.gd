@@ -3,6 +3,7 @@ extends CanvasLayer
 ## vehicles, waypoints, and a dot for every test pan colored by how much gold it held.
 ## Left click drops a waypoint, right click removes the nearest one.
 
+const Settings = preload("res://scripts/core/settings.gd")
 const Claims = preload("res://scripts/core/claims.gd")
 const WorldGen = preload("res://scripts/world/world_gen.gd")
 
@@ -133,7 +134,7 @@ func toggle() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_icons.queue_redraw()
 	else:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		Settings.capture_mouse()
 		main.player.grace()
 
 
@@ -231,6 +232,9 @@ func draw_icons(c: Control) -> void:
 		var g: float = smp.z
 		var col := Color(0.35, 0.35, 0.35, 0.8) if g <= 0.0 else Color(1.0, 0.9, 0.3).lerp(Color(1.0, 0.35, 0.1), clampf(g / 0.25, 0.0, 1.0))
 		c.draw_circle(Vector2(smp.x, smp.y) * s, 2.5 + minf(g * 16.0, 4.0), col)
+	for reg in WorldGen.REGIONS:
+		var rc: Vector2 = (reg[1] as Vector2) * WorldGen.LAYOUT
+		_text(c, font, rc * s - Vector2(40, 0), str(reg[0]).to_upper(), 15, Color(0.3, 0.22, 0.12, 0.75))
 	for r in world.rivers:
 		var pts: PackedVector2Array = r["pts"]
 		var mid := pts[pts.size() / 2]

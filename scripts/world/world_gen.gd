@@ -9,13 +9,27 @@ extends RefCounted
 ##
 ## Pure data with no nodes, so generation and queries are safe on worker threads.
 
-const SIZE := 2048.0
+const SIZE := 8192.0
 const FINE := 2.0            # spacing of the near-river fields (metres)
-const FG := 1025
+const FG := int(SIZE / FINE) + 1   # fine grid points per side
 const BASE := 4.0            # spacing of the base height field
-const BG := 513
+const BG := int(SIZE / BASE) + 1
 const COARSE := 8.0          # spacing of the distance-to-water skeleton
-const CG := 257
+const CG := int(SIZE / COARSE) + 1
+const LAYOUT := SIZE / 2048.0   # the river layout was drawn for a 2 km world; scale it to SIZE
+## The six regions: name, center (in 2 km layout coordinates), hill height, ridges, forest, bare ground.
+## Each region shapes the land around its center and blends into its neighbors.
+const REGIONS = [
+	["Home Valley", Vector2(825, 1350), 1.0, 1.0, 1.0, 0.0],
+	["Old Mining District", Vector2(250, 1425), 1.2, 1.3, 0.55, 0.15],
+	["Foothill Benches", Vector2(1350, 1400), 0.55, 0.4, 0.3, 0.1],
+	["Desert Washes", Vector2(1750, 1720), 0.45, 0.6, 0.0, 0.85],
+	["Canyon Country", Vector2(1650, 560), 1.1, 2.4, 0.25, 0.35],
+	["Alpine Creeks", Vector2(520, 380), 2.0, 1.6, 1.45, 0.0],
+]
+const RGRID := 32.0          # spacing of the region blend grid
+const RG := int(SIZE / RGRID) + 1
+const REGION_BLEND := 220.0   # metres (at 2 km scale) over which neighboring regions mix
 const R_FINE := 30.0         # channel and bank detail out to this distance from a centerline
 const R_STAMP := 34.0
 const MAX_BEND := 0.045
@@ -29,6 +43,7 @@ var pads: Array[Vector4] = []    # x, z, radius, height
 var sites := {}              # name -> {pos: Vector2, facing: Vector2}
 var boulders: Array[Vector4] = []   # creek boulders: x, 0, z, radius
 var progress := ""
+var progress_frac := 0.0      # 0..1, read by the loading screen while generate() runs on a thread
 
 var f_base := PackedFloat32Array()
 var f_d := PackedFloat32Array()
@@ -41,6 +56,10 @@ var f_road_h := PackedFloat32Array()
 var f_bench := PackedFloat32Array()
 var f_bench_h := PackedFloat32Array()
 
+var _rhills := PackedFloat32Array()   # region settings on the coarse grid
+var _rridges := PackedFloat32Array()
+var _rforest := PackedFloat32Array()
+var _rbare := PackedFloat32Array()
 var _cd := PackedFloat32Array()
 var _cwl := PackedFloat32Array()
 var _chw := PackedFloat32Array()
@@ -68,13 +87,20 @@ func _init(s: int = 1849) -> void:
 func generate() -> void:
 	progress = "Laying out the rivers"
 	_make_rivers()
+	progress_frac = 0.03
 	progress = "Shaping the mountains"
 	_coarse_skeleton()
+	progress_frac = 0.15
+	_region_fields()
+	progress_frac = 0.18
 	_base_field()
+	progress_frac = 0.45
 	progress = "Carving the creeks"
 	_stamp_rivers()
+	progress_frac = 0.75
 	progress = "Building roads"
 	_make_sites_and_roads()
+	progress_frac = 1.0
 	progress = "Done"
 
 
@@ -113,7 +139,7 @@ func sample(x: float, z: float) -> Vector4:
 		var wlv := _bl(f_wl, f)
 		var floor_h := _profile(d, hw, wlv, bend)
 		h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
-		wl = wlv
+		wl = wlv if _bl(f_rich, f) >= 0.0 else NO_WATER
 		var e := d - hw
 		var inside := maxf(0.0, bend)
 		look = 1.0 if e < 0.0 else 1.0 - smoothstep(0.4 + 4.0 * inside, 1.5 + 8.0 * inside, e)
@@ -137,12 +163,12 @@ func river_info(x: float, z: float) -> Vector4:
 	if d >= R_FINE:
 		return Vector4(1.0e6, 0.0, 0.0, 0.0)
 	var bend := _bl(f_bend, f)
-	return Vector4(d - _bl(f_hw, f), maxf(0.0, bend), maxf(0.0, -bend), _bl(f_rich, f))
+	return Vector4(d - _bl(f_hw, f), maxf(0.0, bend), maxf(0.0, -bend), absf(_bl(f_rich, f)))
 
 
 func water_level(x: float, z: float) -> float:
 	var f := _fi(x, z)
-	if _bl(f_d, f) >= R_FINE:
+	if _bl(f_d, f) >= R_FINE or _bl(f_rich, f) < 0.0:
 		return NO_WATER
 	return _bl(f_wl, f)
 
@@ -164,7 +190,53 @@ func bench_weight(x: float, z: float) -> float:
 
 
 func forest(x: float, z: float) -> float:
-	return _forest.get_noise_2d(x, z) * 0.5 + 0.5
+	var r := _region_at(_rforest, x, z) if not _rforest.is_empty() else 1.0
+	return (_forest.get_noise_2d(x, z) * 0.5 + 0.5) * r
+
+
+## How much bare sand or dirt shows (0 = all grass, 1 = desert).
+func bare(x: float, z: float) -> float:
+	return _region_at(_rbare, x, z) if not _rbare.is_empty() else 0.0
+
+
+## How much each region counts at a point (the weights add up to 1).
+static func region_weights(x: float, z: float) -> PackedFloat32Array:
+	var d := PackedFloat32Array()
+	d.resize(REGIONS.size())
+	var dmin := 1.0e9
+	for i in REGIONS.size():
+		d[i] = ((REGIONS[i][1] as Vector2) * LAYOUT).distance_to(Vector2(x, z))
+		dmin = minf(dmin, d[i])
+	var total := 0.0
+	for i in d.size():
+		d[i] = exp(-(d[i] - dmin) / (REGION_BLEND * LAYOUT * 0.35))
+		total += d[i]
+	for i in d.size():
+		d[i] /= total
+	return d
+
+
+## A region setting (2 hills, 3 ridges, 4 forest) blended at a point.
+static func region_mix(x: float, z: float, field: int) -> float:
+	var w := region_weights(x, z)
+	var v := 0.0
+	for i in w.size():
+		v += w[i] * float(REGIONS[i][field])
+	return v
+
+
+## Which region a point is in.
+static func region_at(x: float, z: float) -> int:
+	var w := region_weights(x, z)
+	var best := 0
+	for i in w.size():
+		if w[i] > w[best]:
+			best = i
+	return best
+
+
+static func region_name(x: float, z: float) -> String:
+	return REGIONS[region_at(x, z)][0]
 
 
 func in_pad(x: float, z: float, margin: float) -> bool:
@@ -309,7 +381,7 @@ func _apply_pads(x: float, z: float, h: float) -> float:
 # --- Generation ------------------------------------------------------------------------
 
 func _make_rivers() -> void:
-	var main := _river("Big Sable River", Vector2(-30, 1000), Vector2(SIZE + 30, 1070), 64.0, 44.0, 8.0, 9.5, 0.5, 70.0, 1.0, true)
+	var main := _river("Big Sable River", Vector2(-30, 1000 * LAYOUT), Vector2(SIZE + 30, 1070 * LAYOUT), 64.0, 44.0, 8.0, 9.5, 0.5, 70.0, 1.0, true)
 	rivers.append(main)
 	# name, source, x of the junction on the main river, richness, gradient, meander
 	var creeks := [
@@ -318,18 +390,28 @@ func _make_rivers() -> void:
 		["Last Chance Creek", Vector2(1860, 1890), 1640.0, 1.7, 0.05, 22.0],
 		["Willow Creek", Vector2(430, 210), 520.0, 0.8, 0.035, 30.0],
 		["Tamarack Creek", Vector2(1310, 180), 1250.0, 1.25, 0.045, 24.0],
+		# One or two more for each region of the big world.
+		["Ptarmigan Creek", Vector2(180, 140), 260.0, 1.45, 0.07, 18.0],          # Alpine Creeks
+		["Granite Creek", Vector2(820, 90), 900.0, 1.3, 0.065, 20.0],             # Alpine Creeks
+		["Red Rock Creek", Vector2(1930, 260), 1880.0, 1.35, 0.06, 10.0],         # Canyon Country
+		["Bench Creek", Vector2(1230, 1960), 1180.0, 1.1, 0.03, 28.0],            # Foothill Benches
+		["Coyote Wash", Vector2(1990, 1930), 1800.0, 1.6, 0.035, 16.0, true],     # Desert Washes: dry
 	]
 	var mpts: PackedVector2Array = main["pts"]
 	var mwl: PackedFloat32Array = main["wl"]
 	for c in creeks:
 		var best := 0
 		for i in mpts.size():
-			if absf(mpts[i].x - c[2]) < absf(mpts[best].x - c[2]):
+			if absf(mpts[i].x - float(c[2]) * LAYOUT) < absf(mpts[best].x - float(c[2]) * LAYOUT):
 				best = i
 		var mouth := mpts[best]
-		var length: float = (mouth - (c[1] as Vector2)).length()
+		var source: Vector2 = (c[1] as Vector2) * LAYOUT
+		var length: float = (mouth - source).length()
 		var wl_mouth := mwl[best]
-		rivers.append(_river(c[0], c[1], mouth, wl_mouth + float(c[4]) * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false))
+		# Gradients are divided by the scale, so creeks climb as high as they did at 2 km.
+		var r := _river(c[0], source, mouth, wl_mouth + float(c[4]) / LAYOUT * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false)
+		r["dry"] = c.size() > 6 and c[6]
+		rivers.append(r)
 
 
 func _river(n: String, a: Vector2, b: Vector2, wl_a: float, wl_b: float, hw_a: float, hw_b: float,
@@ -353,7 +435,7 @@ func _river(n: String, a: Vector2, b: Vector2, wl_a: float, wl_b: float, hw_a: f
 		pts.append(a.lerp(b, t) + nrm * off * env)
 		wl.append(wl_b + (wl_a - wl_b) * pow(1.0 - t, wl_curve))
 		hw.append(lerpf(hw_a, hw_b, t))
-	return {"name": n, "pts": pts, "wl": wl, "hw": hw, "curv": _curvature(pts), "rich": rich, "main": is_main}
+	return {"name": n, "pts": pts, "wl": wl, "hw": hw, "curv": _curvature(pts), "rich": rich, "main": is_main, "dry": false}
 
 
 func _curvature(pts: PackedVector2Array) -> PackedFloat32Array:
@@ -480,9 +562,47 @@ func _blur(src: PackedFloat32Array, n: int, r: int, iterations: int) -> PackedFl
 
 
 ## Land shape away from the channels: rises with distance from water, plus hills and ridges.
+func _region_at(a: PackedFloat32Array, x: float, z: float) -> float:
+	var cx := clampf(x / RGRID, 0.0, RG - 1.001)
+	var cz := clampf(z / RGRID, 0.0, RG - 1.001)
+	var i := int(cx)
+	var j := int(cz)
+	var tx := cx - i
+	var tz := cz - j
+	var k := j * RG + i
+	return lerpf(lerpf(a[k], a[k + 1], tx), lerpf(a[k + RG], a[k + RG + 1], tx), tz)
+
+
+## Blend the region settings once, on their own coarse grid.
+func _region_fields() -> void:
+	_rhills.resize(RG * RG)
+	_rridges.resize(RG * RG)
+	_rforest.resize(RG * RG)
+	_rbare.resize(RG * RG)
+	for j in RG:
+		for i in RG:
+			var w := region_weights(i * RGRID, j * RGRID)
+			var hv := 0.0
+			var rv := 0.0
+			var fv := 0.0
+			var bv := 0.0
+			for r in w.size():
+				hv += w[r] * float(REGIONS[r][2])
+				rv += w[r] * float(REGIONS[r][3])
+				fv += w[r] * float(REGIONS[r][4])
+				bv += w[r] * float(REGIONS[r][5])
+			var k := j * RG + i
+			_rhills[k] = hv
+			_rridges[k] = rv
+			_rforest[k] = fv
+			_rbare[k] = bv
+
+
 func _base_field() -> void:
 	f_base.resize(BG * BG)
 	for j in BG:
+		if j % 32 == 0:
+			progress_frac = lerpf(0.18, 0.45, float(j) / BG)
 		for i in BG:
 			var x := i * BASE
 			var z := j * BASE
@@ -491,9 +611,11 @@ func _base_field() -> void:
 			var hw := _coarse_at(_chw, x, z)
 			var dp := maxf(0.0, d - (14.0 + 5.0 * hw))
 			var rise := 60.0 * (1.0 - exp(-dp / 200.0)) + 0.1 * dp
-			var amp := minf(1.5 + 0.22 * dp, 80.0)
-			var ridge := minf(0.12 * dp, 50.0) * (_ridges.get_noise_2d(x, z) * 0.5 + 0.5)
-			f_base[j * BG + i] = wl + 1.4 + rise + _hills.get_noise_2d(x, z) * amp + ridge
+			var hills := _region_at(_rhills, x, z)
+			var ridges := _region_at(_rridges, x, z)
+			var amp := minf(1.5 + 0.22 * dp, 80.0) * hills
+			var ridge := minf(0.12 * dp, 50.0) * ridges * (_ridges.get_noise_2d(x, z) * 0.5 + 0.5)
+			f_base[j * BG + i] = wl + 1.4 + rise * lerpf(1.0, hills, 0.6) + _hills.get_noise_2d(x, z) * amp + ridge
 
 
 ## Exact distance, water level, width and bend for every fine cell near a river.
@@ -508,12 +630,14 @@ func _stamp_rivers() -> void:
 	f_bend.fill(0.0)
 	f_rich.fill(0.0)
 	for ri in rivers.size():
+		progress_frac = lerpf(0.45, 0.72, float(ri) / rivers.size())
 		var r: Dictionary = rivers[ri]
 		var pts: PackedVector2Array = r["pts"]
 		var wl: PackedFloat32Array = r["wl"]
 		var hw: PackedFloat32Array = r["hw"]
 		var curv: PackedFloat32Array = r["curv"]
-		var rich: float = r["rich"]
+		# A dry wash stores its richness negative: same channel and gold, but no water.
+		var rich: float = -float(r["rich"]) if r.get("dry", false) else float(r["rich"])
 		for s in pts.size() - 1:
 			var a := pts[s]
 			var ab := pts[s + 1] - a

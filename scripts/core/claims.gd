@@ -4,6 +4,8 @@ extends RefCounted
 ## from the start; the rest are sold at the claims office in town.
 ## Before setup() is called (unit tests) everything counts as yours.
 
+const WorldGen = preload("res://scripts/world/world_gen.gd")
+
 static var list: Array = []       # {id, name, river, pos: Vector2, radius, price}
 static var owned := {}            # id -> true; this is the inventory's own dictionary
 
@@ -21,7 +23,9 @@ static func setup(world, deposits) -> void:
 
 
 static func _add(id: String, name: String, river: String, pos: Vector2, radius: float, price: int) -> void:
-	list.append({"id": id, "name": name, "river": river, "pos": pos, "radius": radius, "price": price})
+	# Claims were sized for the 2 km world; creeks get longer as the world grows, so claims do too.
+	var grow := sqrt(WorldGen.SIZE / 2048.0)
+	list.append({"id": id, "name": name, "river": river, "pos": pos, "radius": radius * grow, "price": price})
 
 
 ## The claim this spot lies on, or {} for public land.

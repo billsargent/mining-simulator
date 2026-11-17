@@ -71,3 +71,8 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 
 ## M6 additions
 - `scripts/machines/dredge.gd`: floats in 0.45 to 4 m of water, feeds itself by `terrain.dig()` under it every 2.2 s, `worked_out` at bedrock. Store item `dredge` (in `inv.gear`). Screenshot `--view=dredge`.
+- World is 8×8 km (`WorldGen.SIZE`); the 2 km layout is scaled by `WorldGen.LAYOUT`. Save version 3; older saves start fresh.
+- Regions: `WorldGen.REGIONS` (name, center, hills, ridges, forest, bare). Blends are precomputed on a 32 m grid (`_region_fields`); `forest()` and `bare()` read it. The terrain shader gets matching colors from `world_terrain.gd`. Screenshot a region with `--region=<0-5> [--yaw=deg]`.
+- Test and screenshot runs never capture the mouse (`Settings.grab_mouse`); use `Settings.capture_mouse()` / `Settings.mouse_captured()` instead of setting `Input.mouse_mode`. `--mouse` turns capture back on.
+- Don't run several windowed screenshot runs in parallel: each 8 km instance uses about 700 MB.
+

@@ -1,9 +1,9 @@
 extends RefCounted
 ## Reads and writes the save file. main.gd decides what goes in it.
-## Version 1: M2 (the small test valley). Version 2: M3 (the big world). Reading returns either;
-## main.gd carries a version 1 player's progress over into the new world.
+## Version 3: the 8 km world. Saves from the earlier, smaller worlds are not carried over:
+## reading one returns nothing, so the game starts fresh.
 
-const VERSION := 2
+const VERSION := 3
 
 static var path := "user://save.dat"
 
@@ -39,6 +39,6 @@ static func read() -> Dictionary:
 		return {}
 	var v = f.get_var()
 	f.close()
-	if v is Dictionary and int((v as Dictionary).get("version", 0)) in [1, 2]:
+	if v is Dictionary and int((v as Dictionary).get("version", 0)) == VERSION:
 		return v
 	return {}

@@ -9,7 +9,7 @@ func _initialize() -> void:
 	var t0 := Time.get_ticks_msec()
 	var w := WorldGen.new(1849)
 	w.generate()
-	print("Generated in %d ms" % (Time.get_ticks_msec() - t0))
+	print("Generated in %d ms, memory %d MB (world %d m)" % [Time.get_ticks_msec() - t0, OS.get_static_memory_usage() / 1000000, int(WorldGen.SIZE)])
 	var lo := 1.0e9
 	var hi := -1.0e9
 	for j in 65:

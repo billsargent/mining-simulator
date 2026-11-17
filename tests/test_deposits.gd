@@ -28,10 +28,10 @@ func _initialize() -> void:
 	var bench: Array[Vector2] = []
 	var hills: Array[Vector2] = []
 	var tries := 0
-	while (bench.size() < SAMPLES or hills.size() < SAMPLES) and tries < 400000:
+	while (bench.size() < SAMPLES or hills.size() < SAMPLES) and tries < 4000000:
 		tries += 1
-		var x := rng.randf_range(10.0, 2038.0)
-		var z := rng.randf_range(10.0, 2038.0)
+		var x := rng.randf_range(10.0, WorldGen.SIZE - 10.0)
+		var z := rng.randf_range(10.0, WorldGen.SIZE - 10.0)
 		if world.bench_weight(x, z) > 0.9 and bench.size() < SAMPLES:
 			bench.append(Vector2(x, z))
 		elif world.river_info(x, z).x > 1.0e5 and world.bench_weight(x, z) < 0.01 and hills.size() < SAMPLES:
