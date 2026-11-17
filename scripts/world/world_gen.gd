@@ -40,6 +40,7 @@ var world_seed := 1849
 var rivers: Array = []       # {name, pts, wl, hw, curv, rich, main}
 var roads: Array = []        # {pts, h}
 var pads: Array[Vector4] = []    # x, z, radius, height
+var _town_pad := Vector4.ZERO    # the town's pad, which is bare street rather than grass
 var sites := {}              # name -> {pos: Vector2, facing: Vector2}
 var boulders: Array[Vector4] = []   # creek boulders: x, 0, z, radius
 var progress := ""
@@ -164,7 +165,16 @@ func sample(x: float, z: float) -> Vector4:
 	if rw > 0.001:
 		h = lerpf(h, _bl(f, FROADH), rw)
 		look = maxf(look, smoothstep(0.3, 0.8, rw))
+	look = maxf(look, _street(x, z))
 	return Vector4(_apply_pads(x, z, h), look, wl, gdepth)
+
+
+## The town's packed-dirt street and yard: bare ground over the town pad, fading at its edge.
+func _street(x: float, z: float) -> float:
+	if _town_pad.z <= 0.0:
+		return 0.0
+	var d := Vector2(x - _town_pad.x, z - _town_pad.y).length()
+	return 1.0 - smoothstep(_town_pad.z - 10.0, _town_pad.z - 3.0, d)
 
 
 ## Where a point sits relative to the nearest river: Vector4(e, inside, outside, richness).
@@ -896,6 +906,8 @@ func _make_sites_and_roads() -> void:
 			height = (road["h"] as PackedFloat32Array)[near_i] + 0.05
 		site["height"] = height
 		pads.append(Vector4(pos.x, pos.y, float(s[1]), height))
+		if s[0] == "town":
+			_town_pad = pads[pads.size() - 1]
 	# Boulders in and beside the creeks (they trap gold just downstream).
 	for r in rivers:
 		var pts: PackedVector2Array = r["pts"]
