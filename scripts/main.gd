@@ -596,13 +596,13 @@ func _apply_gear() -> void:
 
 
 func _setup_input() -> void:
-	Settings.apply_binds()
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("dig", mb)
+	Settings.apply_binds()     # keys, then the controller buttons on every action
 
 
 func _bind_key(action: StringName, key: Key) -> void:
@@ -1697,7 +1697,23 @@ func _selftest() -> void:
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)
-	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
+	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
+	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
+	var pad_ok := true
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up"]:
+		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
+			pad_ok = false
+	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var xb := InputEventJoypadButton.new()
+	xb.button_index = JOY_BUTTON_X
+	xb.pressed = true
+	Settings.note_input(xb)
+	_check("prompts show controller buttons", Settings.using_pad and Hud.key("E").contains("X") and Settings.help(false).contains("Right stick"))
+	var kb := InputEventKey.new()
+	kb.physical_keycode = KEY_W
+	kb.pressed = true
+	Settings.note_input(kb)
+	_check("keyboard takes prompts back", not Settings.using_pad and Hud.key("E").contains("G"))
 	_check("prompts show the new key", Hud.key("E").contains("G"))
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)

@@ -19,6 +19,8 @@ const LIP_R := 0.19
 const DEPTH := 0.055
 const TILT_SENS := 0.08
 const SWIRL_SENS := 0.006
+const PAD_TILT := 40.0      # degrees a second at full stick
+const PAD_SWIRL := 6.0
 const GRAVEL_COLORS = [
 	Color(0.55, 0.52, 0.47), Color(0.45, 0.40, 0.34), Color(0.70, 0.68, 0.64),
 	Color(0.52, 0.37, 0.26), Color(0.36, 0.36, 0.37),
@@ -83,8 +85,14 @@ func _process(delta: float) -> void:
 	_t += delta
 	if not scripted:
 		var captured := Settings.mouse_captured()
-		shaking = captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-		washing = captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+		shaking = captured and (Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_action_pressed("dig"))
+		washing = captured and (Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_action_pressed("pan_wash"))
+		# Controller: right stick up/down sets the tilt while washing, sideways swirls.
+		var st := Settings.stick_look()
+		if st != Vector2.ZERO:
+			if washing:
+				wash_target = clampf(wash_target - st.y * PAD_TILT * delta, 0.0, PanSim.MAX_TILT)
+			_swirl += st.x * PAD_SWIRL * delta
 	tilt = move_toward(tilt, wash_target if washing else 0.0, 50.0 * delta)
 	sim.step(delta, shaking, tilt, _swirl)
 	_swirl = 0.0

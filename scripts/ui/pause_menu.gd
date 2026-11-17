@@ -74,6 +74,12 @@ func _button(box: VBoxContainer, text: String, action: Callable) -> Button:
 
 
 func _input(event: InputEvent) -> void:
+	# Prompts and the help line follow whichever the player is using: controller or keyboard.
+	if Settings.note_input(event) and main != null and main.player != null:
+		main.player.hud.set_help(Settings.help(main.player.driving != null))
+		main.player.refresh_hud()
+		if visible and Settings.using_pad and get_viewport().gui_get_focus_owner() == null:
+			_focus_first()
 	if _waiting == "" or not visible:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -85,8 +91,18 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+## Give the first button of the open page keyboard/controller focus, so the D-pad can move.
+func _focus_first() -> void:
+	var page: Control = _opt_panel if _opt_panel.visible else _main_panel
+	for b in page.find_children("*", "BaseButton", true, false):
+		if (b as Control).is_visible_in_tree():
+			(b as Control).grab_focus()
+			return
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("toggle_mouse"):
+	var pad_back: bool = visible and event is InputEventJoypadButton and event.is_action_pressed("ui_cancel")
+	if event.is_action_pressed("toggle_mouse") or pad_back:
 		if visible and _opt_panel.visible:
 			_close_settings()
 		elif not visible and main.map_view.visible:
@@ -114,6 +130,7 @@ func open() -> void:
 	visible = true
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_focus_first()
 
 
 func _resume() -> void:
@@ -283,6 +300,7 @@ func _show_keys() -> void:
 func _open_settings() -> void:
 	_main_panel.visible = false
 	_opt_panel.visible = true
+	_focus_first()
 
 
 func _close_settings() -> void:
@@ -291,3 +309,5 @@ func _close_settings() -> void:
 		_opt_panel.visible = false
 		_main_panel.visible = true
 		_show_keys()
+		if visible:
+			_focus_first()

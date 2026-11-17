@@ -136,6 +136,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_target.scroll(self, -1)
 	elif event.is_action_pressed("headlamp"):
 		_lamp.visible = not _lamp.visible
+	elif event.is_action_pressed("scroll_up") or event.is_action_pressed("scroll_down"):
+		if pan_view == null and carrying == null and _target != null and _target.has_method("scroll"):
+			_target.scroll(self, 1 if event.is_action_pressed("scroll_up") else -1)
 
 
 func _physics_process(delta: float) -> void:
@@ -161,6 +164,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 	var target := Vector3.ZERO
 	if pan_view == null and not map_open:
+		var look := Settings.pad_look(delta)
+		if look != Vector2.ZERO:
+			rotate_y(-look.x)
+			camera.rotation.x = clampf(camera.rotation.x - look.y, -1.5, 1.5)
 		var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		var dir := transform.basis * Vector3(input.x, 0.0, input.y)
 		dir.y = 0.0
