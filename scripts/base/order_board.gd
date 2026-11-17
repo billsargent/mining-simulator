@@ -9,6 +9,7 @@ const ITEMS = [
 	["high_banker", "High banker and water pump", 350, "work the banks away from the water"],
 	["pick", "Miner's pick", 150, "chips rock faster and deeper than the hammer and chisel"],
 	["rotary", "Rotary hammer", 600, "tears through rock; needs the miner's pick first"],
+	["crusher", "Powered rock crusher", 400, "frees all the gold in your ore; pounding by hand loses about a third"],
 ]
 
 var _sel := 0
@@ -32,6 +33,8 @@ func _owned(inv, id: String) -> bool:
 			return inv.tool_tier >= 1
 		"rotary":
 			return inv.tool_tier >= 2
+		"crusher":
+			return inv.crusher_powered
 	return false
 
 
@@ -77,6 +80,10 @@ func interact(player) -> void:
 		"pick":
 			inv.tool_tier = 1
 			player.hud.toast("A miner's pick. Rock chips faster and deeper now.", Color(0.6, 1.0, 0.6), 5.0)
+		"crusher":
+			inv.crusher_powered = true
+			get_tree().call_group("game", "deliver", "crusher")
+			player.hud.toast("A powered rock crusher, set up by the wash tub. It frees all the gold in your ore.", Color(0.6, 1.0, 0.6), 5.0)
 		"rotary":
 			inv.tool_tier = 2
 			player.hud.toast("A rotary hammer. Hold left mouse on the rock and it tears through.", Color(0.6, 1.0, 0.6), 5.0)

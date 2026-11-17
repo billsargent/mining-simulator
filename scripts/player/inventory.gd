@@ -21,6 +21,7 @@ const GOALS = [
 	["mine_enter", "Find the old mine above Rattlesnake Gulch (west on the map) and go in. Bring your headlamp (L)."],
 	["ore", "Chip a white quartz vein in the mine wall (left mouse) to fill your ore sack."],
 	["crushed", "Take the ore home and pound it in the ore crusher by the wash tub, then pan the jar."],
+	["find", "The old crew left things behind in the mine. Look in the far corners and read what you find."],
 ]
 
 const ORE_CAPACITY := 10
@@ -35,6 +36,9 @@ var bars: Array = []                    # {"grams": float, "purity": float}
 var pans := 0
 var high_banker_bought := false
 var tool_tier := 0                      # 0 hammer and chisel, 1 miner's pick, 2 rotary hammer
+var crusher_powered := false
+var specimens := PackedFloat32Array()   # gold in quartz, kept whole: grams of gold in each
+var finds := {}                         # journals and maps already read
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
 
@@ -49,6 +53,10 @@ func add_gold(pieces: PackedFloat32Array) -> void:
 			nuggets.append(m)
 		else:
 			vial.append(m)
+
+
+func add_specimen(grams: float) -> void:
+	specimens.append(grams)
 
 
 func vial_grams() -> float:
@@ -92,6 +100,7 @@ func to_dict() -> Dictionary:
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
+		"crusher_powered": crusher_powered, "specimens": specimens, "finds": finds,
 	}
 
 
@@ -108,6 +117,9 @@ func from_dict(d: Dictionary) -> void:
 	tool_tier = d.get("tool_tier", 0)
 	goals_done = d.get("goals", {})
 	samples = d.get("samples", PackedVector3Array())
+	crusher_powered = d.get("crusher_powered", false)
+	specimens = d.get("specimens", PackedFloat32Array())
+	finds = d.get("finds", {})
 
 
 static func _sum(a: PackedFloat32Array) -> float:

@@ -14,6 +14,12 @@ var _toast_left := 0.0
 var _pan_box: PanelContainer
 var _pan_text: RichTextLabel
 var _help: Label
+var _shade: ColorRect
+var _shade_level := 0.0
+var _blackout := 0.0
+var _blackout_time := 1.0
+var _note_box: PanelContainer
+var _note_text: RichTextLabel
 
 
 ## A key name formatted for prompts, e.g. key("E") -> [E] in yellow.
@@ -26,6 +32,12 @@ func _ready() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+
+	_shade = ColorRect.new()
+	_shade.color = Color(0, 0, 0, 0)
+	_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(_shade)
 
 	var dot := ColorRect.new()
 	dot.color = Color(1, 1, 1, 0.85)
@@ -86,6 +98,30 @@ func _ready() -> void:
 	_pan_box.visible = false
 	root.add_child(_pan_box)
 
+	_note_box = PanelContainer.new()
+	var paper := StyleBoxFlat.new()
+	paper.bg_color = Color(0.9, 0.86, 0.74, 0.97)
+	paper.set_corner_radius_all(4)
+	paper.set_content_margin_all(28)
+	_note_box.add_theme_stylebox_override("panel", paper)
+	_note_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor(_note_box, Vector4(0.5, 0.5, 0.5, 0.5), Vector4(-330, -40, 330, 40))
+	_note_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_note_box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_note_text = RichTextLabel.new()
+	_note_text.bbcode_enabled = true
+	_note_text.fit_content = true
+	_note_text.scroll_active = false
+	_note_text.custom_minimum_size = Vector2(600, 0)
+	_note_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_note_text.add_theme_font_size_override("normal_font_size", 20)
+	_note_text.add_theme_font_size_override("bold_font_size", 23)
+	_note_text.add_theme_font_size_override("italics_font_size", 16)
+	_note_text.add_theme_color_override("default_color", Color(0.16, 0.11, 0.07))
+	_note_box.add_child(_note_text)
+	_note_box.visible = false
+	root.add_child(_note_box)
+
 	_help = _label(16)
 	_help.text = "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
 	_help.modulate = Color(1, 1, 1, 0.75)
@@ -97,6 +133,34 @@ func _process(delta: float) -> void:
 	if _toast_left > 0.0:
 		_toast_left -= delta
 		_toast.modulate.a = clampf(_toast_left / 0.6, 0.0, 1.0)
+	if _blackout > 0.0:
+		_blackout = maxf(0.0, _blackout - delta / _blackout_time)
+	_shade.color.a = maxf(_shade_level, _blackout)
+
+
+## Darken the whole view (0 = clear). Used when the air is bad.
+func set_shade(a: float) -> void:
+	_shade_level = clampf(a, 0.0, 1.0)
+
+
+## Go black, then fade back in over the given time.
+func blackout(seconds: float) -> void:
+	_blackout = 1.0
+	_blackout_time = maxf(seconds, 0.1)
+
+
+## A page to read, in the middle of the screen.
+func show_note(title: String, body: String) -> void:
+	_note_text.text = "[b]%s[/b]\n\n%s\n\n[i]E or walk away to put it down[/i]" % [title, body]
+	_note_box.visible = true
+
+
+func hide_note() -> void:
+	_note_box.visible = false
+
+
+func note_open() -> bool:
+	return _note_box.visible
 
 
 ## bbcode text; use key("E") for key names.
@@ -106,7 +170,7 @@ func set_prompt(bbcode: String) -> void:
 		_prompt.text = t
 
 
-func set_status(inv, bucket_capacity: int, clock: String = "") -> void:
+func set_status(inv, bucket_capacity: int, clock: String = "", extra: PackedStringArray = PackedStringArray()) -> void:
 	var lines := PackedStringArray()
 	lines.append("$%d" % inv.money + ("      " + clock if clock != "" else ""))
 	lines.append("Bucket   %d / %d" % [inv.bucket.size(), bucket_capacity])
@@ -118,8 +182,11 @@ func set_status(inv, bucket_capacity: int, clock: String = "") -> void:
 	if not inv.nuggets.is_empty():
 		gold += "     Nuggets   %d  (%.2f g)" % [inv.nuggets.size(), inv.nugget_grams()]
 	lines.append(gold)
+	if not inv.specimens.is_empty():
+		lines.append("Specimens   %d  (gold in quartz)" % inv.specimens.size())
 	if not inv.bars.is_empty():
 		lines.append("Bars   %d  (%.2f g)" % [inv.bars.size(), inv.bar_grams()])
+	lines.append_array(extra)
 	var t := "\n".join(lines)
 	if _status.text != t:
 		_status.text = t

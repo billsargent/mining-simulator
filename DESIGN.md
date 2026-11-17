@@ -29,7 +29,7 @@ Scout → test-pan → set up gear → dig and process → haul concentrates hom
 
 **Placer methods** (in progression order): panning → sniping/crevicing → sluice → high banker (signature mid-game) → metal detector → dry washer (desert) → dredge → trommel + excavator (endgame).
 
-**Old mines.** Adits, drifts, shafts, stopes, ore carts. A modular kit with procedural vein placement. Chip quartz veins with hammer and chisel → pry bar → rotary hammer → jackhammer. Hazards are fair and signposted: darkness, rotten timbers, shafts, flooded levels, bad air. Rewards: ore, specimen gold, artifacts, and journals and maps that point to other mines.
+**Old mines.** Adits, drifts, shafts, stopes, ore carts. A modular kit with procedural vein placement. Chip quartz veins with hammer and chisel → pry bar → rotary hammer → jackhammer. Hazards are fair and signposted: darkness, rotten timbers, shafts, flooded levels, bad air. None of them kill you, and one setting in the Esc menu turns them all off. Rewards: ore, specimen gold, artifacts, and journals and maps that point to other mines.
 
 **Home base.** Cabin and shed grow into a workshop. Cleanup: classify → pan/shaker table → magnet out black sand → dry → weigh. Smelt with crucible, flux and furnace, then pour a bar (natural gold is ~80–92% pure). Choice: smelt, or sell nuggets and specimens to collectors at a premium. Also a garage, fuel, repair bench and trophy shelf. Satellite camps act as spawn and save points.
 

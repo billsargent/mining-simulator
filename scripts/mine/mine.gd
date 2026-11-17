@@ -9,6 +9,8 @@
 const Parts = preload("res://scripts/machines/parts.gd")
 const Tex = preload("res://scripts/util/tex.gd")
 const MinePortal = preload("res://scripts/world/mine_portal.gd")
+const Hazards = preload("res://scripts/mine/hazards.gd")
+const Find = preload("res://scripts/mine/find.gd")
 
 const CELL := 0.5
 const NX := 144
@@ -28,6 +30,7 @@ const DIRS = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i
 var cells := PackedByteArray()
 var carved := PackedInt32Array()      # cells the player has opened (saved)
 var built := false
+var hazards: Hazards
 
 var _chunks := {}                     # Vector3i -> [MeshInstance3D, CollisionShape3D]
 var _pos_cache := {}                  # smoothed corner positions (cleared when the rock changes)
@@ -37,12 +40,14 @@ var _mat: StandardMaterial3D
 var _body: StaticBody3D
 
 
-func build(saved_carved: PackedInt32Array = PackedInt32Array()) -> void:
+func build(saved_carved: PackedInt32Array = PackedInt32Array(), collapsed: bool = false) -> void:
 	_noise.seed = 1887
 	_noise.frequency = 0.35
 	cells.resize(NX * NY * NZ)
 	cells.fill(ROCK)
 	_layout()
+	if collapsed:
+		_fill_cells(Hazards.ROT_CENTER, Hazards.ROT_RADIUS)
 	for c in saved_carved:
 		if c >= 0 and c < cells.size():
 			cells[c] = OPEN
@@ -65,6 +70,10 @@ func build(saved_carved: PackedInt32Array = PackedInt32Array()) -> void:
 			for cx in ceili(float(NX) / CH):
 				_build_chunk(Vector3i(cx, cy, cz))
 	_props()
+	hazards = Hazards.new()
+	add_child(hazards)
+	hazards.setup(self, collapsed)
+	_finds()
 	built = true
 
 
@@ -108,6 +117,45 @@ func chip(world_pos: Vector3, normal: Vector3, radius: float = 1.2) -> Dictionar
 	for ch: Vector3i in touched:
 		_build_chunk(ch)
 	return out
+
+
+## A cave-in: everything open within the radius (measured across the floor) is rock again.
+## The cells drop out of the carved list, so digging back through is saved as new digging.
+func fill(center: Vector3, radius: float) -> void:
+	var filled := _fill_cells(center, radius)
+	var keep := PackedInt32Array()
+	for c in carved:
+		if not filled.has(c):
+			keep.append(c)
+	carved = keep
+	_pos_cache.clear()
+	_relax_cache.clear()
+	var r := ceili(radius / CELL) + 5
+	var c0 := Vector3i(floori(center.x / CELL), 0, floori(center.z / CELL))
+	var touched := {}
+	for k in range(c0.z - r, c0.z + r + 1, 4):
+		for i in range(c0.x - r, c0.x + r + 1, 4):
+			for j in range(0, NY, 4):
+				if i >= 0 and k >= 0 and i < NX and k < NZ:
+					touched[Vector3i(i / CH, j / CH, k / CH)] = true
+	for ch: Vector3i in touched:
+		_build_chunk(ch)
+
+
+func _fill_cells(center: Vector3, radius: float) -> Dictionary:
+	var filled := {}
+	var r := ceili(radius / CELL)
+	var c0 := Vector3i(floori(center.x / CELL), 0, floori(center.z / CELL))
+	for k in range(c0.z - r, c0.z + r + 1):
+		for i in range(c0.x - r, c0.x + r + 1):
+			if Vector2((i + 0.5) * CELL - center.x, (k + 0.5) * CELL - center.z).length() > radius:
+				continue
+			for j in NY:
+				if _open(i, j, k):
+					var n := _idx(i, j, k)
+					cells[n] = ROCK
+					filled[n] = true
+	return filled
 
 
 func _idx(i: int, j: int, k: int) -> int:
@@ -307,6 +355,17 @@ func _build_chunk(c: Vector3i) -> void:
 		_chunks[c] = entry
 	(entry[0] as MeshInstance3D).mesh = mesh
 	(entry[1] as CollisionShape3D).shape = shape
+
+
+## Things the old crew left behind: a journal, a map, a last note.
+func _finds() -> void:
+	for f in [["journal", Vector3(36.6, LEVEL1, 6.6), 0.6], ["map", Vector3(51.3, LEVEL1, 49.8), -1.2],
+			["note", Vector3(41.2, LEVEL2, 14.1), 1.4]]:
+		var find := Find.new()
+		find.position = f[1]
+		find.rotation.y = f[2]
+		add_child(find)
+		find.build(f[0])
 
 
 # --- Timbers, rails and the way out ----------------------------------------------------------

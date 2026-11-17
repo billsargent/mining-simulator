@@ -21,6 +21,7 @@ void fragment() {
 var world: WorldGen
 var main
 var waypoints: Array[Vector2] = []
+var marks: Array = []                 # places learned from journals and old maps: [Vector2, label]
 var explored := PackedByteArray()
 var _mask_img: Image
 var _mask_tex: ImageTexture
@@ -194,6 +195,14 @@ func remove_waypoint_near(p: Vector2, reach: float) -> void:
 		waypoints.remove_at(best)
 
 
+## A place a journal or an old map told you about. It shows even where you haven't explored.
+func add_mark(p: Vector2, label: String) -> void:
+	for m in marks:
+		if m[1] == label:
+			return
+	marks.append([p, label])
+
+
 func load_state(d: Dictionary) -> void:
 	var e: PackedByteArray = d.get("explored", PackedByteArray())
 	if e.size() == CELLS * CELLS:
@@ -205,10 +214,11 @@ func load_state(d: Dictionary) -> void:
 	waypoints.clear()
 	for w in d.get("waypoints", []):
 		waypoints.append(w)
+	marks = d.get("marks", [])
 
 
 func save_state() -> Dictionary:
-	return {"explored": explored, "waypoints": waypoints}
+	return {"explored": explored, "waypoints": waypoints, "marks": marks}
 
 
 # --- Drawing -------------------------------------------------------------------------------
@@ -238,6 +248,12 @@ func draw_icons(c: Control) -> void:
 		var q := Vector2(v.global_position.x, v.global_position.z) * s
 		c.draw_rect(Rect2(q - Vector2(4, 4), Vector2(8, 8)), Color(0.15, 0.35, 0.8))
 		_text(c, font, q + Vector2(7, 4), v.display_name, 12, Color(0.1, 0.2, 0.5))
+	for m in marks:
+		var q: Vector2 = (m[0] as Vector2) * s
+		var ink := Color(0.6, 0.08, 0.05)
+		c.draw_line(q + Vector2(-6, -6), q + Vector2(6, 6), ink, 3.0)
+		c.draw_line(q + Vector2(-6, 6), q + Vector2(6, -6), ink, 3.0)
+		_text(c, font, q + Vector2(9, 4), m[1], 14, ink)
 	for i in waypoints.size():
 		var q := waypoints[i] * s
 		c.draw_circle(q, 7.0, Color(0.1, 0.1, 0.1))
