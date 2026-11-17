@@ -42,6 +42,8 @@ const Truck = preload("res://scripts/vehicles/truck.gd")
 const Trailer = preload("res://scripts/vehicles/trailer.gd")
 const Camp = preload("res://scripts/base/camp.gd")
 const Trommel = preload("res://scripts/machines/trommel.gd")
+const Garnets = preload("res://scripts/gold/garnets.gd")
+const Parts = preload("res://scripts/machines/parts.gd")
 const Excavator = preload("res://scripts/vehicles/excavator.gd")
 const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
@@ -154,6 +156,7 @@ func _ready() -> void:
 	add_child(town)
 	town.build(terrain, world.sites["town"])
 	Claims.setup(world, deposits)
+	_garnet_sign()
 	_build_bounds()
 	hud = Hud.new()
 	add_child(hud)
@@ -499,6 +502,32 @@ func _build_near_player() -> void:
 	scatter.focus = f
 	terrain.build_now()
 	scatter.build_near_now()
+
+
+## A painted sign up the bank from Garnet Beach.
+func _garnet_sign() -> void:
+	var b := Garnets.beach
+	var spot := b
+	for k in 16:
+		var a := TAU * k / 16.0
+		var p := b + Vector2(cos(a), sin(a)) * 9.0
+		var e: float = world.river_info(p.x, p.y).x
+		if e > 4.0 and e < 14.0:
+			spot = p
+			break
+	var sign := StaticBody3D.new()
+	add_child(sign)
+	sign.global_position = Vector3(spot.x, terrain.height_at(spot.x, spot.y), spot.y)
+	sign.rotation.y = atan2(b.x - spot.x, b.y - spot.y) + PI
+	var wood := Parts.wood("sign_post", Color(0.45, 0.33, 0.22))
+	for s: float in [-0.6, 0.6]:
+		Parts.box(sign, Vector3(0.1, 1.9, 0.1), Vector3(s, 0.95, 0), wood)
+	Parts.box(sign, Vector3(1.6, 0.55, 0.05), Vector3(0, 1.55, 0), Parts.wood("sign_board", Color(0.5, 0.38, 0.26)))
+	var l := Parts.label(sign, "GARNET BEACH", Vector3(0, 1.6, 0.03), 34)
+	l.modulate = Color(0.55, 0.05, 0.1)
+	var l2 := Parts.label(sign, "sieve & flip", Vector3(0, 1.42, 0.03), 22)
+	l2.modulate = Color(0.2, 0.15, 0.1)
+	Parts.collider(sign, Vector3(1.6, 1.9, 0.12), Vector3(0, 0.95, 0))
 
 
 func spawn_machine(kind: String):
@@ -899,6 +928,25 @@ func _apply_view() -> void:
 			"base":
 				from = base.to_global(Vector3(-3.0, 0.0, 15.0))
 				at = base.to_global(Vector3(0.0, 1.5, -1.0))
+			"garnet":
+				# On Garnet Beach with a sieve just flipped, garnets on top.
+				var gb := Garnets.beach
+				var dry := gb
+				for k in 16:
+					var a := TAU * k / 16.0
+					var p := gb + Vector2(cos(a), sin(a)) * 3.0
+					if world.river_info(p.x, p.y).x > 1.0:
+						dry = p
+						break
+				from = Vector3(dry.x, 0.0, dry.y)
+				at = Vector3(gb.x + (gb.x - dry.x) * 3.0, terrain.height_at(gb.x, gb.y) - 0.5, gb.y + (gb.y - dry.y) * 3.0)
+				player.inv.gear["sieve"] = true
+				player._sieve_step()
+				player._sieve_phase = 3
+				player._sieve_t = 1.0e6
+				player._sieve.rotation.z = PI
+				player._sieve_found = [1.4, 0.5, 2.6, 0.35]
+				player._show_garnets()
 			"parking":
 				from = base.to_global(Vector3(2.0, 0.0, 16.0))
 				at = base.to_global(Vector3(1.0, 0.5, 3.5))
@@ -1025,6 +1073,20 @@ func _demo_setup() -> void:
 			m._process_one(deposits.shovelful(p.x, p.z, 0.15, 0.0, 0.0))
 
 
+## A point across the creek (frac of its half width) near the middle of a claim, for tests.
+func _claim_point(id: String, frac: float) -> Vector2:
+	var c := Claims.by_id(id)
+	var best := Vector2.ZERO
+	var best_d := 1.0e9
+	for i in 1000:
+		var p := world.river_point(c["river"], i / 1000.0, frac)
+		var d := p.distance_to(c["pos"])
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+
 func _v3(p: Vector2) -> Vector3:
 	return Vector3(p.x, 0.0, p.y)
 
@@ -1110,7 +1172,7 @@ func _selftest() -> void:
 	hud.hide_note()
 
 	# Claims: machines only run on ground you own.
-	var willow := _v3(world.river_point("Willow Creek", 0.5, 0.5))
+	var willow := _v3(_claim_point("willow", 0.5))
 	sluice.place_at(willow, 0.0)
 	_check("a sluice has water on Willow Creek but won't run: not your claim", sluice.water_problem() == "" and sluice.problem() != "" and not sluice.is_running())
 	var open_ground := _v3(world.river_point("Willow Creek", 0.15, 0.5))
@@ -1437,10 +1499,10 @@ func _selftest() -> void:
 	town.store.interact(player)
 	var dredge = machine_of("dredge")
 	_check("the dredge is delivered", dredge != null and inv.gear.has("dredge"))
-	var shallow := _v3(world.river_point("Big Sable River", 0.3, 1.2))
+	var shallow := _v3(_claim_point("sable", 2.2))
 	dredge.place_at(shallow, 0.0)
 	_check("the dredge needs deeper water", dredge.water_problem() != "")
-	var deep := _v3(world.river_point("Big Sable River", 0.3, 0.3))
+	var deep := _v3(_claim_point("sable", 0.3))
 	dredge.place_at(deep, 0.0)
 	_check("off your claim it won't run", dredge.water_problem() == "" and not dredge.is_running())
 	town.claims_office.select("sable")
@@ -1703,6 +1765,50 @@ func _selftest() -> void:
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)
 	Settings.reset_binds()
 	_check("keys reset", Settings.key_for("interact") == KEY_E and Settings.key_for("carry") == KEY_F and Hud.key("E").contains("E"))
+
+	# Garnets: buy a sieve, stand on Garnet Beach, scoop, shake, flip; sell them in town.
+	inv.money += 100
+	town.store.select("sieve")
+	town.store.interact(player)
+	var gb := Garnets.beach
+	var gspot := gb
+	for k in 24:
+		var a := TAU * k / 24.0
+		var gp := gb + Vector2(cos(a), sin(a)) * 2.0
+		var ge: float = world.river_info(gp.x, gp.y).x
+		if ge > 0.3 and ge < 3.0:
+			gspot = gp
+			break
+	_place_player(Vector3(gspot.x, 0.0, gspot.y), 0.0, 0.0)
+	for i in 30:
+		await get_tree().physics_frame
+	inv.bucket.clear()
+	_check("garnet beach is on the map and you can sieve there", world.sites.has("garnet") and inv.gear.has("sieve") and player._on_beach())
+	inv.garnets = PackedFloat32Array()
+	player._garnet_rng.seed = 4
+	var sieved := 0
+	for load_i in 12:
+		player._sieve_step()
+		player._sieve_t = 0.0
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		player._sieve_step()
+		for i in 30:
+			await get_tree().physics_frame
+		player._sieve_t = 0.0
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		sieved += 1
+	_check("sieving and flipping turns up garnets", inv.garnets.size() > 0 and player._sieve_phase == 0)
+	var gmoney: int = inv.money
+	var gvalue := 0
+	for ct in inv.garnets:
+		gvalue += Garnets.value(ct)
+	inv.bars.clear()
+	inv.nuggets = PackedFloat32Array()
+	inv.specimens = PackedFloat32Array()
+	town.assay.interact(player)
+	_check("the assay office buys garnets", inv.garnets.is_empty() and inv.money == gmoney + gvalue)
 	Settings.quality = 0
 	Settings.apply_graphics(get_tree())
 	_check("low quality turns off shadows", not day_night.sun.shadow_enabled)

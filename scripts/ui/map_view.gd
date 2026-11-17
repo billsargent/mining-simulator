@@ -249,11 +249,13 @@ func draw_icons(c: Control) -> void:
 			var tag: String = cl["name"] if mine_now else "%s  $%d" % [cl["name"], cl["price"]]
 			_text(c, font, q + Vector2(-30, float(cl["radius"]) * s + 13), tag, 12, ring.darkened(0.2))
 	var places := [["base", "Grandpa's cabin", Color(0.75, 0.3, 0.1)], ["town", "Sable Crossing", Color(0.25, 0.2, 0.5)], ["camp", "Last Chance camp", Color(0.4, 0.3, 0.2)],
-		["mine", "Old mine", Color(0.3, 0.3, 0.3)]]
+		["mine", "Old mine", Color(0.3, 0.3, 0.3)], ["garnet", "Garnet Beach", Color(0.6, 0.08, 0.15)]]
 	for pl in places:
+		if not world.sites.has(pl[0]):
+			continue
 		var site: Dictionary = world.sites[pl[0]]
 		var pos: Vector2 = site["pos"]
-		if pl[0] in ["base", "town"] or is_explored(pos.x, pos.y):
+		if pl[0] in ["base", "town", "garnet"] or is_explored(pos.x, pos.y):
 			var q := pos * s
 			c.draw_rect(Rect2(q - Vector2(5, 5), Vector2(10, 10)), pl[2])
 			_text(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05))

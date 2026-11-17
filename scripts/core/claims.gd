@@ -15,8 +15,8 @@ static func setup(world, deposits) -> void:
 	var base: Vector2 = world.sites["base"]["pos"]
 	var camp: Vector2 = world.sites["camp"]["pos"]
 	_add("home", "Grandpa's claim", "Cabin Creek", base, 140.0, 0)
-	_add("sable", "Sable Bar", "Big Sable River", world.river_point("Big Sable River", 0.3, 0.0), 90.0, 1200)
-	_add("willow", "Willow Flats", "Willow Creek", world.river_point("Willow Creek", 0.5, 0.0), 80.0, 1500)
+	_add("sable", "Sable Bar", "Big Sable River", deposits.rich_spot("Big Sable River"), 90.0, 1200)
+	_add("willow", "Willow Flats", "Willow Creek", deposits.rich_spot("Willow Creek"), 80.0, 1500)
 	_add("rattlesnake", "Rattlesnake No. 2", "Rattlesnake Gulch", deposits.rich_spot("Rattlesnake Gulch"), 70.0, 2500)
 	_add("tamarack", "Tamarack Cross", "Tamarack Creek", deposits.rich_spot("Tamarack Creek"), 70.0, 3500)
 	_add("last_chance", "Last Chance Discovery", "Last Chance Creek", camp, 85.0, 6000)

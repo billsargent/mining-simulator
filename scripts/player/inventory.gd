@@ -42,6 +42,7 @@ var high_banker_bought := false
 var tool_tier := 0                      # 0 hammer and chisel, 1 miner's pick, 2 rotary hammer
 var crusher_powered := false
 var specimens := PackedFloat32Array()   # gold in quartz, kept whole: grams of gold in each
+var garnets := PackedFloat32Array()     # garnets, by size in carats
 var finds := {}                         # journals and maps already read
 var gear := {}                          # small things from the store: classifier, bucket, sack, moss, detector
 var claims := {}                        # ids of the claims you have bought
@@ -189,7 +190,7 @@ func to_dict() -> Dictionary:
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
-		"crusher_powered": crusher_powered, "specimens": specimens, "finds": finds, "gear": gear, "claims": claims,
+		"crusher_powered": crusher_powered, "specimens": specimens, "garnets": garnets, "finds": finds, "gear": gear, "claims": claims,
 		"chest": {"cons": _dirt_out(chest_cons), "ore": _dirt_out(chest_ore), "vial": chest_vial, "nuggets": chest_nuggets,
 			"specimens": chest_specimens, "bars": chest_bars},
 	}
@@ -210,6 +211,7 @@ func from_dict(d: Dictionary) -> void:
 	samples = d.get("samples", PackedVector3Array())
 	crusher_powered = d.get("crusher_powered", false)
 	specimens = d.get("specimens", PackedFloat32Array())
+	garnets = d.get("garnets", PackedFloat32Array())
 	finds = d.get("finds", {})
 	gear = d.get("gear", {})
 	claims = d.get("claims", {})

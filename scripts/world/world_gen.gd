@@ -9,6 +9,7 @@ extends RefCounted
 ##
 ## Pure data with no nodes, so generation and queries are safe on worker threads.
 
+const Garnets = preload("res://scripts/gold/garnets.gd")
 const SIZE := 8192.0
 const FINE := 2.0            # spacing of the near-river fields (metres)
 const FG := int(SIZE / FINE) + 1   # fine grid points per side
@@ -113,6 +114,9 @@ func generate() -> void:
 	progress_frac = 0.75
 	progress = "Building roads"
 	_make_sites_and_roads()
+	# Garnet Beach: a bare gravel bar on an inside bend of the big river (see garnets.gd).
+	_beach = Garnets.find_beach(self)
+	sites["garnet"] = {"pos": _beach}
 	progress_frac = 1.0
 	progress = "Done"
 
@@ -166,7 +170,15 @@ func sample(x: float, z: float) -> Vector4:
 		h = lerpf(h, _bl(f, FROADH), rw)
 		look = maxf(look, smoothstep(0.3, 0.8, rw))
 	look = maxf(look, _street(x, z))
+	if _beach != Vector2.ZERO and absf(x - _beach.x) < Garnets.BEACH_RADIUS and absf(z - _beach.y) < Garnets.BEACH_RADIUS:
+		var bd := Vector2(x, z).distance_to(_beach)
+		var be := d - _bl(f, FHW)
+		if bd < Garnets.BEACH_RADIUS and be < 12.0:
+			look = maxf(look, (1.0 - smoothstep(Garnets.BEACH_RADIUS * 0.7, Garnets.BEACH_RADIUS, bd)) * (1.0 - smoothstep(7.0, 12.0, be)))
 	return Vector4(_apply_pads(x, z, h), look, wl, gdepth)
+
+
+var _beach := Vector2.ZERO
 
 
 ## The town's packed-dirt street and yard: bare ground over the town pad, fading at its edge.
@@ -498,14 +510,14 @@ func _apply_pads(x: float, z: float, h: float) -> float:
 # --- Generation ------------------------------------------------------------------------
 
 func _make_rivers() -> void:
-	var main := _river("Big Sable River", Vector2(-30, 1000 * LAYOUT), Vector2(SIZE + 30, 1070 * LAYOUT), 64.0, 44.0, 8.0, 9.5, 0.5, 70.0, 1.0, true)
+	var main := _river("Big Sable River", Vector2(-30, 1000 * LAYOUT), Vector2(SIZE + 30, 1070 * LAYOUT), 64.0, 44.0, 8.0, 9.5, 1.1, 70.0, 1.0, true)
 	rivers.append(main)
 	# name, source, x of the junction on the main river, richness, gradient, meander
 	var creeks := [
 		["Cabin Creek", Vector2(780, 1780), 840.0, 1.0, 0.04, 26.0],
 		["Rattlesnake Gulch", Vector2(240, 1830), 360.0, 1.15, 0.055, 18.0],
 		["Last Chance Creek", Vector2(1860, 1890), 1640.0, 1.7, 0.05, 22.0],
-		["Willow Creek", Vector2(430, 210), 520.0, 0.8, 0.035, 30.0],
+		["Willow Creek", Vector2(430, 210), 520.0, 1.2, 0.035, 30.0],
 		["Tamarack Creek", Vector2(1310, 180), 1250.0, 1.25, 0.045, 24.0],
 		# One or two more for each region of the big world.
 		["Ptarmigan Creek", Vector2(180, 140), 260.0, 1.45, 0.07, 18.0],          # Alpine Creeks
