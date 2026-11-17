@@ -285,11 +285,13 @@ func _aiming_at_rock() -> bool:
 func _try_chip() -> void:
 	if not _aiming_at_rock():
 		return
-	_dig_cd = 0.7
+	# Hammer and chisel, miner's pick, rotary hammer: each is quicker and bites deeper.
+	var tier: int = clampi(inv.tool_tier, 0, 2)
+	_dig_cd = [0.95, 0.6, 0.28][tier]
 	if inv.ore.size() >= Inventory.ORE_CAPACITY:
 		hud.toast("Your ore sack is full. Take it home to the ore crusher.")
 		return
-	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"])
+	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"], [1.0, 1.45, 1.8][tier])
 	_animate_dig()
 	var vein: int = int(res["vein_a"]) + int(res["vein_b"])
 	if vein > 0:
@@ -537,7 +539,8 @@ func _update_prompt() -> void:
 		return
 	var parts := PackedStringArray()
 	if mine != null:
-		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock (white quartz carries gold)" if _aiming_at_rock() else "")
+		var tool_name: String = ["hammer and chisel", "miner's pick", "rotary hammer"][clampi(inv.tool_tier, 0, 2)]
+		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() else "")
 		return
 	if _near_water():
 		if not inv.bucket.is_empty():

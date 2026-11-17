@@ -1,4 +1,4 @@
-extends Node3D
+﻿extends Node3D
 ## The old mine's interior: carvable rock on a 0.5 m grid, hidden far below the surface and
 ## reached through the portal. Tunnels and rooms are carved out of solid rock at build time;
 ## quartz veins are marked in the rock and show white in the walls. Chipping opens more cells,
@@ -30,6 +30,8 @@ var carved := PackedInt32Array()      # cells the player has opened (saved)
 var built := false
 
 var _chunks := {}                     # Vector3i -> [MeshInstance3D, CollisionShape3D]
+var _pos_cache := {}                  # smoothed corner positions (cleared when the rock changes)
+var _relax_cache := {}
 var _noise := FastNoiseLite.new()
 var _mat: StandardMaterial3D
 var _body: StaticBody3D
@@ -76,16 +78,18 @@ func spawn_yaw() -> float:
 
 
 ## Chip the rock at a hit point. Returns how many cells of each kind broke away.
-func chip(world_pos: Vector3, normal: Vector3) -> Dictionary:
+func chip(world_pos: Vector3, normal: Vector3, radius: float = 1.2) -> Dictionary:
 	var p := to_local(world_pos - normal * 0.3) / CELL
 	var c := Vector3i(floori(p.x), floori(p.y), floori(p.z))
 	var out := {"rock": 0, "vein_a": 0, "vein_b": 0}
 	var touched := {}
-	for dj in range(-1, 2):
-		for dk in range(-1, 2):
-			for di in range(-1, 2):
+	_pos_cache.clear()
+	_relax_cache.clear()
+	for dj in range(-2, 3):
+		for dk in range(-2, 3):
+			for di in range(-2, 3):
 				var q := c + Vector3i(di, dj, dk)
-				if Vector3(di, dj, dk).length() > 1.2 or not _inside(q):
+				if Vector3(di, dj, dk).length() > radius or not _inside(q):
 					continue
 				var k := _idx(q.x, q.y, q.z)
 				var kind := cells[k]
@@ -94,9 +98,13 @@ func chip(world_pos: Vector3, normal: Vector3) -> Dictionary:
 				out["rock" if kind == ROCK else ("vein_a" if kind == VEIN_A else "vein_b")] += 1
 				cells[k] = OPEN
 				carved.append(k)
-				for d: Vector3i in [Vector3i.ZERO, Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
-					var n := q + d
-					touched[Vector3i(n.x / CH, n.y / CH, n.z / CH)] = true
+				# Smoothing reaches a few cells, so rebuild every chunk within that range.
+				for sx in [-4, 0, 4]:
+					for sy in [-4, 0, 4]:
+						for sz in [-4, 0, 4]:
+							var n := q + Vector3i(sx, sy, sz)
+							if n.x >= 0 and n.y >= 0 and n.z >= 0 and n.x < NX and n.y < NY and n.z < NZ:
+								touched[Vector3i(n.x / CH, n.y / CH, n.z / CH)] = true
 	for ch: Vector3i in touched:
 		_build_chunk(ch)
 	return out
@@ -121,17 +129,17 @@ func _open(i: int, j: int, k: int) -> bool:
 
 func _layout() -> void:
 	var z0 := 30.0
-	_tunnel(Vector3(1.5, LEVEL1, z0), Vector3(34, LEVEL1, z0), 1.15, 2.4)       # adit
+	_tunnel(Vector3(1.5, LEVEL1, z0), Vector3(34, LEVEL1, z0), 1.45, 2.8)       # adit
 	_room(Vector3(34, LEVEL1, z0), Vector3(3.0, 1.7, 3.0))                      # junction
-	_tunnel(Vector3(34, LEVEL1, z0), Vector3(34, LEVEL1, 14), 1.0, 2.2)         # north drift
+	_tunnel(Vector3(34, LEVEL1, z0), Vector3(34, LEVEL1, 14), 1.3, 2.6)         # north drift
 	_room(Vector3(34, LEVEL1, 9), Vector3(5.0, 2.8, 4.5))                       # stope
-	_tunnel(Vector3(34, LEVEL1, z0), Vector3(37, LEVEL1, 46), 1.0, 2.2)         # south drift
-	_tunnel(Vector3(37, LEVEL1, 46), Vector3(52, LEVEL1, 50), 1.0, 2.2)
-	_tunnel(Vector3(34, LEVEL1, z0), Vector3(50, LEVEL1, z0), 1.1, 2.3)         # east drift
-	_tunnel(Vector3(50, LEVEL1, z0), Vector3(63, LEVEL2, z0), 1.2, 2.8)         # incline down
+	_tunnel(Vector3(34, LEVEL1, z0), Vector3(37, LEVEL1, 46), 1.3, 2.6)         # south drift
+	_tunnel(Vector3(37, LEVEL1, 46), Vector3(52, LEVEL1, 50), 1.3, 2.6)
+	_tunnel(Vector3(34, LEVEL1, z0), Vector3(50, LEVEL1, z0), 1.4, 2.7)         # east drift
+	_tunnel(Vector3(50, LEVEL1, z0), Vector3(63, LEVEL2, z0), 1.5, 3.2)         # incline down
 	_room(Vector3(64.5, LEVEL2, z0), Vector3(2.5, 1.6, 2.5))
-	_tunnel(Vector3(64.5, LEVEL2, z0), Vector3(64.5, LEVEL2, 16), 1.0, 2.2)     # lower drift
-	_tunnel(Vector3(64.5, LEVEL2, 16), Vector3(40, LEVEL2, 14), 1.0, 2.2)
+	_tunnel(Vector3(64.5, LEVEL2, z0), Vector3(64.5, LEVEL2, 16), 1.3, 2.6)     # lower drift
+	_tunnel(Vector3(64.5, LEVEL2, 16), Vector3(40, LEVEL2, 14), 1.3, 2.6)
 	# Quartz veins: thin slanted sheets of white rock that cross the drifts.
 	for j in NY:
 		for k in NZ:
@@ -194,20 +202,44 @@ func _room(c: Vector3, half: Vector3) -> void:
 ## Where a grid corner sits. Corners are pulled toward the open space around them, which rounds
 ## off the square steps, then nudged by noise so the rock looks hewn.
 func _vpos(v: Vector3i) -> Vector3:
-	var open_sum := Vector3.ZERO
+	if _pos_cache.has(v):
+		return _pos_cache[v]
+	# Three rounds of averaging each surface corner with its neighbors on the surface
+	# melts the square steps into slopes and arches. Floors stay flat because a flat
+	# surface averages to itself.
+	var p := _relaxed(v, 3)
+	p += Vector3(_noise.get_noise_3d(p.x, p.y, p.z) * 0.1, _noise.get_noise_3d(p.x + 31.0, p.y, p.z) * 0.035,
+		_noise.get_noise_3d(p.x, p.y + 57.0, p.z) * 0.1)
+	_pos_cache[v] = p
+	return p
+
+
+func _on_surface(v: Vector3i) -> bool:
 	var count := 0
 	for dj in [-1, 0]:
 		for dk in [-1, 0]:
 			for di in [-1, 0]:
 				if _open(v.x + di, v.y + dj, v.z + dk):
-					open_sum += Vector3(di + 0.5, dj + 0.5, dk + 0.5)
 					count += 1
-	var p := Vector3(v) * CELL
-	if count > 0 and count < 8:
-		# Few open cells around a corner means it sticks out into the tunnel: pull it back.
-		p -= (open_sum / count) * CELL * 0.55 * (1.0 - count / 8.0) * Vector3(1.0, 0.45, 1.0)
-	return p + Vector3(_noise.get_noise_3d(p.x, p.y, p.z) * 0.16, _noise.get_noise_3d(p.x + 31.0, p.y, p.z) * 0.05,
-		_noise.get_noise_3d(p.x, p.y + 57.0, p.z) * 0.16)
+	return count > 0 and count < 8
+
+
+func _relaxed(v: Vector3i, rounds: int) -> Vector3:
+	if rounds == 0:
+		return Vector3(v) * CELL
+	var key := Vector4i(v.x, v.y, v.z, rounds)
+	if _relax_cache.has(key):
+		return _relax_cache[key]
+	var sum := _relaxed(v, rounds - 1)
+	var n := 1
+	for d: Vector3i in DIRS:
+		var w := v + d
+		if _on_surface(w):
+			sum += _relaxed(w, rounds - 1)
+			n += 1
+	var out := sum / n
+	_relax_cache[key] = out
+	return out
 
 
 func _build_chunk(c: Vector3i) -> void:

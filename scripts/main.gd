@@ -872,6 +872,15 @@ func _selftest() -> void:
 	player._dig_cd = 0.0
 	player._try_chip()
 	_check("chipping the quartz vein fills the ore sack", inv.ore.size() == 1)
+	var small: Dictionary = mine.chip(mine.to_global(Vector3(10.0, 9.0, 31.2)), Vector3(0, 0, -1), 1.0)
+	var big: Dictionary = mine.chip(mine.to_global(Vector3(15.0, 9.0, 31.2)), Vector3(0, 0, -1), 1.8)
+	_check("better tools bite deeper", int(big["rock"]) > int(small["rock"]) and int(small["rock"]) > 0)
+	inv.money += 800
+	base.order_board.scroll(player, -1)
+	base.order_board.interact(player)
+	base.order_board.scroll(player, -1)
+	base.order_board.interact(player)
+	_check("the order board sells the pick, then the rotary hammer", inv.tool_tier == 2)
 	var lower: Dictionary = mine.chip(mine.to_global(Vector3(50.0, 2.5, 13.1)), Vector3(0, 0, 1))
 	_check("the lower vein is there", int(lower["vein_b"]) > 0)
 	player.global_position = mine.to_global(Vector3(56.0, 5.2, 30.0))

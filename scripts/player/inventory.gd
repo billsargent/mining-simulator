@@ -34,6 +34,7 @@ var nuggets := PackedFloat32Array()
 var bars: Array = []                    # {"grams": float, "purity": float}
 var pans := 0
 var high_banker_bought := false
+var tool_tier := 0                      # 0 hammer and chisel, 1 miner's pick, 2 rotary hammer
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
 
@@ -90,7 +91,7 @@ func to_dict() -> Dictionary:
 	return {
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
-		"high_banker_bought": high_banker_bought, "goals": goals_done, "samples": samples,
+		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
 	}
 
 
@@ -104,6 +105,7 @@ func from_dict(d: Dictionary) -> void:
 	bars = d.get("bars", [])
 	pans = d.get("pans", 0)
 	high_banker_bought = d.get("high_banker_bought", false)
+	tool_tier = d.get("tool_tier", 0)
 	goals_done = d.get("goals", {})
 	samples = d.get("samples", PackedVector3Array())
 
