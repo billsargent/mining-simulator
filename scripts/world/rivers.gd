@@ -15,6 +15,8 @@ func build(world: WorldGen) -> void:
 	var wave_b := Tex.noise(0.035, 12, 256, true, 2.0)
 	var main_hw: float = (world.rivers[0]["hw"] as PackedFloat32Array)[0]
 	for r in world.rivers:
+		if r.get("dry", false):
+			continue
 		var pts: PackedVector2Array = r["pts"]
 		var wl: PackedFloat32Array = r["wl"]
 		var hw: PackedFloat32Array = r["hw"]

@@ -771,6 +771,11 @@ func _apply_view() -> void:
 				var p := world.river_point("Big Sable River", 0.503, 1.15)
 				from = Vector3(p.x, 0.0, p.y)
 				at = d.global_position
+			"wash":
+				var p := world.river_point("Coyote Wash", 0.5, 4.0)
+				var q := world.river_point("Coyote Wash", 0.56, 0.0)
+				from = Vector3(p.x, 0.0, p.y)
+				at = Vector3(q.x, terrain.height_at(q.x, q.y), q.y)
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -922,6 +927,8 @@ func _selftest() -> void:
 	# Every river and creek works for the sluice, the pump and panning.
 	var all_rivers := true
 	for r in world.rivers:
+		if r.get("dry", false):
+			continue
 		var n: String = r["name"]
 		var hws: PackedFloat32Array = r["hw"]
 		sluice.place_at(_v3(world.river_point(n, 0.5, 0.5)), 0.0)
@@ -950,6 +957,8 @@ func _selftest() -> void:
 	_check("high banker hooked to the pump", hb.water_problem() == "")
 	var pumps_ok := true
 	for r in world.rivers:
+		if r.get("dry", false):
+			continue
 		pump.place_at(_v3(world.river_point(r["name"], 0.4, 1.25)), 0.0)
 		if pump.water_problem() != "":
 			pumps_ok = false

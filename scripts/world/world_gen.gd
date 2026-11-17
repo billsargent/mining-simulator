@@ -139,7 +139,7 @@ func sample(x: float, z: float) -> Vector4:
 		var wlv := _bl(f_wl, f)
 		var floor_h := _profile(d, hw, wlv, bend)
 		h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
-		wl = wlv
+		wl = wlv if _bl(f_rich, f) >= 0.0 else NO_WATER
 		var e := d - hw
 		var inside := maxf(0.0, bend)
 		look = 1.0 if e < 0.0 else 1.0 - smoothstep(0.4 + 4.0 * inside, 1.5 + 8.0 * inside, e)
@@ -163,12 +163,12 @@ func river_info(x: float, z: float) -> Vector4:
 	if d >= R_FINE:
 		return Vector4(1.0e6, 0.0, 0.0, 0.0)
 	var bend := _bl(f_bend, f)
-	return Vector4(d - _bl(f_hw, f), maxf(0.0, bend), maxf(0.0, -bend), _bl(f_rich, f))
+	return Vector4(d - _bl(f_hw, f), maxf(0.0, bend), maxf(0.0, -bend), absf(_bl(f_rich, f)))
 
 
 func water_level(x: float, z: float) -> float:
 	var f := _fi(x, z)
-	if _bl(f_d, f) >= R_FINE:
+	if _bl(f_d, f) >= R_FINE or _bl(f_rich, f) < 0.0:
 		return NO_WATER
 	return _bl(f_wl, f)
 
@@ -390,6 +390,12 @@ func _make_rivers() -> void:
 		["Last Chance Creek", Vector2(1860, 1890), 1640.0, 1.7, 0.05, 22.0],
 		["Willow Creek", Vector2(430, 210), 520.0, 0.8, 0.035, 30.0],
 		["Tamarack Creek", Vector2(1310, 180), 1250.0, 1.25, 0.045, 24.0],
+		# One or two more for each region of the big world.
+		["Ptarmigan Creek", Vector2(180, 140), 260.0, 1.45, 0.07, 18.0],          # Alpine Creeks
+		["Granite Creek", Vector2(820, 90), 900.0, 1.3, 0.065, 20.0],             # Alpine Creeks
+		["Red Rock Creek", Vector2(1930, 260), 1880.0, 1.35, 0.06, 10.0],         # Canyon Country
+		["Bench Creek", Vector2(1230, 1960), 1180.0, 1.1, 0.03, 28.0],            # Foothill Benches
+		["Coyote Wash", Vector2(1990, 1930), 1800.0, 1.6, 0.035, 16.0, true],     # Desert Washes: dry
 	]
 	var mpts: PackedVector2Array = main["pts"]
 	var mwl: PackedFloat32Array = main["wl"]
@@ -403,7 +409,9 @@ func _make_rivers() -> void:
 		var length: float = (mouth - source).length()
 		var wl_mouth := mwl[best]
 		# Gradients are divided by the scale, so creeks climb as high as they did at 2 km.
-		rivers.append(_river(c[0], source, mouth, wl_mouth + float(c[4]) / LAYOUT * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false))
+		var r := _river(c[0], source, mouth, wl_mouth + float(c[4]) / LAYOUT * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false)
+		r["dry"] = c.size() > 6 and c[6]
+		rivers.append(r)
 
 
 func _river(n: String, a: Vector2, b: Vector2, wl_a: float, wl_b: float, hw_a: float, hw_b: float,
@@ -427,7 +435,7 @@ func _river(n: String, a: Vector2, b: Vector2, wl_a: float, wl_b: float, hw_a: f
 		pts.append(a.lerp(b, t) + nrm * off * env)
 		wl.append(wl_b + (wl_a - wl_b) * pow(1.0 - t, wl_curve))
 		hw.append(lerpf(hw_a, hw_b, t))
-	return {"name": n, "pts": pts, "wl": wl, "hw": hw, "curv": _curvature(pts), "rich": rich, "main": is_main}
+	return {"name": n, "pts": pts, "wl": wl, "hw": hw, "curv": _curvature(pts), "rich": rich, "main": is_main, "dry": false}
 
 
 func _curvature(pts: PackedVector2Array) -> PackedFloat32Array:
@@ -628,7 +636,8 @@ func _stamp_rivers() -> void:
 		var wl: PackedFloat32Array = r["wl"]
 		var hw: PackedFloat32Array = r["hw"]
 		var curv: PackedFloat32Array = r["curv"]
-		var rich: float = r["rich"]
+		# A dry wash stores its richness negative: same channel and gold, but no water.
+		var rich: float = -float(r["rich"]) if r.get("dry", false) else float(r["rich"])
 		for s in pts.size() - 1:
 			var a := pts[s]
 			var ab := pts[s + 1] - a
