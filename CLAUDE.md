@@ -87,3 +87,5 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Settings (`scripts/core/settings.gd`, `user://settings.cfg`): quality, render scale, full screen, vsync, FOV, mouse sensitivity, invert Y, key bindings. The Esc menu has a Settings page; screenshot it with `--settings`.
 - Rebindable actions are in `Settings.ACTIONS`; don't bind them in `main._setup_input()`. Prompts keep writing the default key (`Hud.key("E")`), and `Settings.prompt_key()` shows the player's actual key. The bottom help line comes from `Settings.help(driving)`.
 - Cameras that follow the FOV setting join the `"fov_camera"` group; mouse look uses `Settings.look_speed()`.
+- Saves are crash-safe (`save_game.gd`): written to `.tmp`, read back, then swapped in; the previous good save is kept as `.bak` and read when the main file is damaged. Check: `godot --headless --path . --script res://tests/test_save.gd`.
+- Frame rate by quality: `-- --fps --quality=0|1|2 [--scale=0.5]` (vsync off for the run). Grass reach follows quality (`Settings.grass_radius()`).

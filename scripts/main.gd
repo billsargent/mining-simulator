@@ -92,6 +92,12 @@ func _ready() -> void:
 	Settings.persist = _opts.is_empty()
 	Settings.grab_mouse = _opts.is_empty() or _opts.has("mouse")
 	Settings.load_file()
+	if _opts.has("quality"):
+		Settings.quality = clampi(int(_opts["quality"]), 0, 2)
+	if _opts.has("scale"):
+		Settings.render_scale = clampf(float(_opts["scale"]), 0.5, 1.0)
+	if _opts.has("fps"):
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	_setup_input()
 	_show_loading()
 	await get_tree().process_frame

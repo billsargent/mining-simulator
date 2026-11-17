@@ -14,7 +14,7 @@ const TREE_STEP := 9.0
 const ROCK_BLOCK := 512.0
 const GRASS_CELL := 16.0
 const GRASS_STEP := 0.7
-const GRASS_RADIUS := 60.0
+const Settings = preload("res://scripts/core/settings.gd")   # grass reach follows quality
 const COLLIDE_RADIUS := 72.0
 const NEAR_TREES := 230.0
 const MAX_GRASS_TASKS := 6
@@ -329,12 +329,12 @@ func _shape(kind: String, size: float) -> Shape3D:
 
 func _wanted_cells() -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	var c0 := Vector2i(floori((focus.x - GRASS_RADIUS) / GRASS_CELL), floori((focus.z - GRASS_RADIUS) / GRASS_CELL))
-	var c1 := Vector2i(floori((focus.x + GRASS_RADIUS) / GRASS_CELL), floori((focus.z + GRASS_RADIUS) / GRASS_CELL))
+	var c0 := Vector2i(floori((focus.x - Settings.grass_radius()) / GRASS_CELL), floori((focus.z - Settings.grass_radius()) / GRASS_CELL))
+	var c1 := Vector2i(floori((focus.x + Settings.grass_radius()) / GRASS_CELL), floori((focus.z + Settings.grass_radius()) / GRASS_CELL))
 	for cz in range(c0.y, c1.y + 1):
 		for cx in range(c0.x, c1.x + 1):
 			var center := Vector2((cx + 0.5) * GRASS_CELL, (cz + 0.5) * GRASS_CELL)
-			if center.distance_to(Vector2(focus.x, focus.z)) < GRASS_RADIUS and cx >= 0 and cz >= 0:
+			if center.distance_to(Vector2(focus.x, focus.z)) < Settings.grass_radius() and cx >= 0 and cz >= 0:
 				out.append(Vector2i(cx, cz))
 	return out
 
@@ -347,7 +347,7 @@ func _stream_grass() -> void:
 			_grass_tasks[c] = WorkerThreadPool.add_task(_task_grass.bind(c))
 	for c: Vector2i in _grass.keys():
 		var center := Vector2((c.x + 0.5) * GRASS_CELL, (c.y + 0.5) * GRASS_CELL)
-		if center.distance_to(Vector2(focus.x, focus.z)) > GRASS_RADIUS + 24.0:
+		if center.distance_to(Vector2(focus.x, focus.z)) > Settings.grass_radius() + 24.0:
 			(_grass[c] as Node).queue_free()
 			_grass.erase(c)
 			_grass_pos.erase(c)
