@@ -1,6 +1,7 @@
 extends StaticBody3D
 ## The general store's catalog, on a board by its door. Mouse wheel picks an item, E buys it.
 ## Big things are delivered to the shed at your cabin; the rest goes in your pack.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -98,6 +99,7 @@ func interact(player) -> void:
 		player.hud.toast("Not enough money yet: $%d more to go." % (price - inv.money))
 		return
 	inv.money -= price
+	Sfx.play("sell", null, -4.0)
 	var said := ""
 	match id:
 		"high_banker":

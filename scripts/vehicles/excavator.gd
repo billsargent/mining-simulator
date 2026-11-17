@@ -123,6 +123,8 @@ func action(player) -> void:
 		target.feed(deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"]))
 		n += 1
 	player.on_machine_fed(target)
+	Sfx.play("dig", p, 2.0, 0.8)
+	Sfx.play("dump", target.global_position, 0.0)
 	var tw := create_tween()
 	tw.tween_property(_boom, "rotation:x", 0.1, 0.4)
 	tw.parallel().tween_property(_stick, "rotation:x", -0.6, 0.4)

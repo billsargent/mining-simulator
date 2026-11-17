@@ -9,6 +9,7 @@ const Claims = preload("res://scripts/core/claims.gd")
 const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const CARPET := Color(0.16, 0.2, 0.16)
 const BLACK_SAND := Color(0.05, 0.05, 0.06)
@@ -88,14 +89,34 @@ func _on_moved() -> void:
 	pass
 
 
+const MOTOR_KINDS := ["pump", "trommel", "dredge", "dry_washer"]
+const WATER_KINDS := ["sluice", "high_banker", "trommel", "dredge"]
+var _motor_snd: AudioStreamPlayer3D
+var _water_snd: AudioStreamPlayer3D
+
+
 func _update_visuals(_delta: float) -> void:
 	var running := is_running()
+	_update_sound(running)
 	if _flow:
 		_flow.visible = running
 	if _spray:
 		_spray.emitting = running and not hopper.is_empty()
 	if carried:
 		_marker_mat.albedo_color = Color(0.3, 0.9, 0.4, 0.16) if problem() == "" else Color(1.0, 0.55, 0.2, 0.16)
+
+
+## Engines hum and water rushes while a machine runs (louder when it has gravel to work).
+func _update_sound(running: bool) -> void:
+	if not processes and kind != "pump":
+		return
+	if _motor_snd == null and kind in MOTOR_KINDS:
+		_motor_snd = Sfx.loop_on(self, "motor", 5.0)
+	if _water_snd == null and kind in WATER_KINDS:
+		_water_snd = Sfx.loop_on(self, "water", 4.0)
+	var busy := processes and not hopper.is_empty()
+	Sfx.run_loop(_motor_snd, running, -6.0 if busy else -9.0, 1.15 if busy else 1.0)
+	Sfx.run_loop(_water_snd, running and kind != "dry_washer", -6.0 if busy else -11.0)
 
 
 # --- Processing -------------------------------------------------------------------

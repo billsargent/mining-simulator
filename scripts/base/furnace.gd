@@ -1,6 +1,7 @@
 extends StaticBody3D
 ## Propane furnace and pouring table. E melts the gold from your vial, E pours it, E takes the bar.
 ## Nuggets are kept aside: collectors pay more for them than they're worth melted down.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -152,6 +153,7 @@ func interact(player) -> void:
 			_batch = player.inv.take_vial()
 			state = HEATING
 			_t = 0.0
+			Sfx.play("roar", global_position)
 			player.hud.toast("Fired up the furnace: %.3f g of gold and a pinch of borax in the crucible." % _batch)
 		MOLTEN:
 			state = POURING
@@ -163,6 +165,7 @@ func interact(player) -> void:
 			_crucible.rotation.z = 0.0
 		READY:
 			player.inv.bars.append({"grams": _bar_grams, "purity": PURITY})
+			Sfx.play("clink", global_position, 0.0, 0.7)
 			player.inv.complete_goal("smelted")
 			player.hud.toast("A %.2f g bar, about %d%% pure. Ship it in the gold buyer's box." % [_bar_grams, roundi(PURITY * 100.0)], Color(1.0, 0.85, 0.4), 5.0)
 			_bar.visible = false

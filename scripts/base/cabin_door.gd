@@ -1,6 +1,7 @@
 extends StaticBody3D
 ## The cabin door. E opens or closes it; it swings inward on its hinge.
 ## The node sits on the hinge; the door leaf extends toward -X from it.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -28,6 +29,7 @@ func prompt(_player) -> String:
 
 
 func interact(_player) -> void:
+	Sfx.play("creak", global_position)
 	set_open(not is_open)
 
 

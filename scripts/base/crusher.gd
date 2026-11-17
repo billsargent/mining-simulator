@@ -2,6 +2,7 @@ extends StaticBody3D
 ## Ore crusher: turns a sack of quartz ore into a jar of crushed material you can pan like
 ## sluice concentrate. It starts as an iron mortar and a heavy pestle, which leaves about a
 ## third of the gold locked in the grit. The powered crusher from the order board frees it all.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -66,6 +67,7 @@ func interact(player) -> void:
 		return
 	var jar := Paydirt.new()
 	jar.black_sand = 0.25
+	Sfx.play("thud", global_position)
 	jar.gravel = 0.5
 	jar.sand = 1.0
 	var total := 0

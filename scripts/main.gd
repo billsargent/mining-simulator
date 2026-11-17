@@ -48,6 +48,7 @@ const Weather = preload("res://scripts/world/weather.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
+const Sfx = preload("res://scripts/core/sfx.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const Town = preload("res://scripts/world/town.gd")
 const Claims = preload("res://scripts/core/claims.gd")
@@ -100,6 +101,10 @@ func _ready() -> void:
 	if _opts.has("fps"):
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	_setup_input()
+	var sfx := Sfx.new()
+	sfx.main = self
+	add_child(sfx)
+	Settings.apply_audio()
 	_show_loading()
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -1646,6 +1651,25 @@ func _selftest() -> void:
 	_check("the tutorial bar is near the cabin and richer than the creek's average",
 		Vector2(bar_spot.x, bar_spot.z).distance_to(home2) < 225.0 and deposits.richness(bar_spot.x, bar_spot.z) > avg)
 	player.inv.goals_done = saved_goals
+
+	# Sound: everything is synthesized, loops loop, and playing works.
+	var sfx_node = Sfx._i
+	var snd_wait := 0
+	while not sfx_node._ready_sounds and snd_wait < 600:
+		await get_tree().process_frame
+		snd_wait += 1
+	var sounds_ok: bool = sfx_node._ready_sounds
+	for n in ["dig", "pour", "dump", "chip", "splash", "clink", "sell", "goal", "thud", "creak", "roar", "creek", "wind",
+			"rain", "swish", "crickets", "drip", "engine", "motor", "water", "bird0", "tune0", "tune1", "tune2"]:
+		var w = sfx_node._sounds.get(n)
+		if w == null or w.data.size() < 200:
+			print("  missing sound ", n)
+			sounds_ok = false
+	_check("every sound is built", sounds_ok)
+	_check("ambience loops", sfx_node._sounds["creek"].loop_mode == AudioStreamWAV.LOOP_FORWARD and sfx_node._amb.size() == 5)
+	Sfx.play("dig", player.global_position)
+	Sfx.play("sell")
+	_check("sounds play", sfx_node._pool3.size() > 0 and sfx_node._pool.size() > 0)
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)

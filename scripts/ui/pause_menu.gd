@@ -178,6 +178,9 @@ func _build_settings(root: Control, sb: StyleBoxFlat) -> void:
 	_check(box, "Full screen", Settings.fullscreen, func(on: bool) -> void: Settings.fullscreen = on)
 	_check(box, "Vertical sync", Settings.vsync, func(on: bool) -> void: Settings.vsync = on)
 	_slider(box, "Field of view", 60, 100, Settings.fov, "%d", func(v: float) -> void: Settings.fov = v)
+	_heading(box, "Sound")
+	_slider(box, "Volume", 0, 100, Settings.volume * 100.0, "%d%%", func(v: float) -> void: Settings.volume = v / 100.0)
+	_slider(box, "Music", 0, 100, Settings.music_volume * 100.0, "%d%%", func(v: float) -> void: Settings.music_volume = v / 100.0)
 	_heading(box, "Mouse")
 	_slider(box, "Sensitivity", 20, 300, Settings.mouse_sens * 100.0, "%d%%", func(v: float) -> void:
 		Settings.mouse_sens = v / 100.0)
@@ -258,6 +261,7 @@ func _check(box: VBoxContainer, text: String, on: bool, set_fn: Callable) -> voi
 
 func _apply() -> void:
 	Settings.apply_graphics(get_tree())
+	Settings.apply_audio()
 	Settings.save_file()
 
 
