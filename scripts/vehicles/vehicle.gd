@@ -234,7 +234,7 @@ func _engine_sound() -> void:
 		_engine_snd = Sfx.loop_on(self, "engine", 7.0)
 	var on := driver != null
 	var speed := linear_velocity.length()
-	var throttle := absf(Input.get_axis("move_back", "move_forward")) if on and not driver.map_open else 0.0
+	var throttle := absf(Settings.drive_input()) if on and not driver.map_open else 0.0
 	var pitch := 0.8 + clampf(speed / maxf(top_speed, 1.0), 0.0, 1.2) * 1.1 + throttle * 0.25
 	if kind == "truck":
 		pitch *= 0.75
@@ -279,7 +279,7 @@ func _drive(dt: float) -> void:
 	var steer_in := 0.0
 	var handbrake := false
 	if driver != null and not driver.map_open:
-		throttle = Input.get_axis("move_back", "move_forward")
+		throttle = Settings.drive_input()
 		steer_in = Input.get_axis("move_right", "move_left")
 		handbrake = Input.is_action_pressed("jump")
 	var b := global_basis

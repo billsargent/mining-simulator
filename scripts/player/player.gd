@@ -159,7 +159,7 @@ func _physics_process(delta: float) -> void:
 		if driving.has_method("action"):
 			line += "
 " + driving.drive_hint()
-			if Input.is_action_just_pressed("dig") and Settings.mouse_captured() and not map_open:
+			if Input.is_action_just_pressed("scoop") and Settings.mouse_captured() and not map_open:
 				driving.action(self)
 		hud.set_prompt(line)
 		return
