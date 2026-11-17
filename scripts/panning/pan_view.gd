@@ -161,6 +161,52 @@ func _build_pan() -> void:
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_body.add_child(mi)
+	# Rolled rim all the way round.
+	var rim := TorusMesh.new()
+	rim.inner_radius = LIP_R + 0.002
+	rim.outer_radius = LIP_R + 0.016
+	rim.rings = 64
+	rim.ring_segments = 8
+	var rmi := MeshInstance3D.new()
+	rmi.mesh = rim
+	rmi.material_override = mat
+	rmi.position.y = DEPTH + 0.002
+	rmi.scale = Vector3(1.0, 0.6, 1.0)
+	rmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_body.add_child(rmi)
+	_body.add_child(_riffles(mat))
+
+
+## Three riffles moulded into the far half of the wall: sharp steps that catch gold as you wash.
+func _riffles(mat: Material) -> MeshInstance3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var segs := 28
+	var a_from := PI / 2.0 - 1.25
+	var a_to := PI / 2.0 + 1.25
+	for r in 3:
+		var t := 0.35 + 0.2 * r                 # how far up the wall
+		var rad := lerpf(FLOOR_R, LIP_R, t)
+		var h := lerpf(0.0, DEPTH, t)
+		var p := func(a: float, dr: float, dh: float) -> Vector3:
+			return Vector3(cos(a) * (rad + dr), h + dh, sin(a) * (rad + dr))
+		for s in segs:
+			var a0 := lerpf(a_from, a_to, float(s) / segs)
+			var a1 := lerpf(a_from, a_to, float(s + 1) / segs)
+			# The step: a narrow ledge sticking in from the wall, then down to it.
+			for q in [[0.0, 0.004, -0.006, 0.004], [-0.006, 0.004, -0.006, -0.002]]:
+				var v00: Vector3 = p.call(a0, q[0], q[1])
+				var v01: Vector3 = p.call(a1, q[0], q[1])
+				var v10: Vector3 = p.call(a0, q[2], q[3])
+				var v11: Vector3 = p.call(a1, q[2], q[3])
+				for v in [v00, v01, v10, v01, v11, v10]:
+					st.add_vertex(v)
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
 
 
 ## The mass of material in the pan. Grains below its surface are hidden, so gold

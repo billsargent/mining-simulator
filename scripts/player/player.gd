@@ -11,6 +11,7 @@ const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
 const Settings = preload("res://scripts/core/settings.gd")
 const Claims = preload("res://scripts/core/claims.gd")
+const Tex = preload("res://scripts/util/tex.gd")
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.8
@@ -635,28 +636,97 @@ func _make_shovel() -> Node3D:
 	var root := Node3D.new()
 	root.position = Vector3(0.34, -0.36, -0.5)
 	root.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(10.0), deg_to_rad(-6.0))
+	# An old round-point shovel: worn ash handle, dark steel, rubbed bright at the cutting edge.
 	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.46, 0.31, 0.18)
-	wood.roughness = 0.75
+	Tex.dress_as(wood, "rough_wood", 6.0, Color(0.50, 0.36, 0.22), 0.5)
+	wood.roughness = 0.7
 	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.36, 0.37, 0.38)
-	steel.metallic = 0.8
-	steel.roughness = 0.45
+	Tex.dress_as(steel, "rust", 4.0, Color(0.50, 0.46, 0.42), 0.6)
+	steel.metallic = 0.45
+	steel.roughness = 0.55
+	var bright := StandardMaterial3D.new()
+	bright.albedo_color = Color(0.62, 0.62, 0.60)
+	bright.metallic = 0.9
+	bright.roughness = 0.3
 	var shaft := CylinderMesh.new()
 	shaft.top_radius = 0.016
 	shaft.bottom_radius = 0.018
-	shaft.height = 1.0
-	shaft.radial_segments = 10
-	root.add_child(_part(shaft, wood, Vector3(0, 0, -0.25), Vector3(deg_to_rad(90.0), 0, 0)))
-	var blade := BoxMesh.new()
-	blade.size = Vector3(0.22, 0.008, 0.27)
-	root.add_child(_part(blade, steel, Vector3(0, -0.012, -0.86), Vector3(deg_to_rad(-12.0), 0, 0)))
+	shaft.height = 0.98
+	shaft.radial_segments = 12
+	root.add_child(_part(shaft, wood, Vector3(0, 0, -0.24), Vector3(deg_to_rad(90.0), 0, 0)))
+	# Steel socket where the handle goes into the blade, tapering down.
+	var sock := CylinderMesh.new()
+	sock.top_radius = 0.021
+	sock.bottom_radius = 0.03
+	sock.height = 0.16
+	sock.radial_segments = 12
+	root.add_child(_part(sock, steel, Vector3(0, -0.004, -0.78), Vector3(deg_to_rad(90.0), 0, 0)))
+	var blade := MeshInstance3D.new()
+	blade.mesh = _shovel_blade(false)
+	blade.material_override = steel
+	blade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blade.position = Vector3(0, -0.01, -0.85)
+	blade.rotation = Vector3(deg_to_rad(-14.0), 0, 0)
+	root.add_child(blade)
+	var edge := MeshInstance3D.new()
+	edge.mesh = _shovel_blade(true)
+	edge.material_override = bright
+	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blade.add_child(edge)
+	# D-handle: two cheeks from a ferrule and a cross grip.
+	var fer := CylinderMesh.new()
+	fer.top_radius = 0.02
+	fer.bottom_radius = 0.02
+	fer.height = 0.05
+	root.add_child(_part(fer, steel, Vector3(0, 0, 0.25), Vector3(deg_to_rad(90.0), 0, 0)))
+	for side in [-1.0, 1.0]:
+		var cheek := BoxMesh.new()
+		cheek.size = Vector3(0.012, 0.02, 0.13)
+		root.add_child(_part(cheek, wood, Vector3(side * 0.035, 0, 0.32), Vector3(0, deg_to_rad(side * 18.0), 0)))
 	var grip := CylinderMesh.new()
-	grip.top_radius = 0.022
-	grip.bottom_radius = 0.022
-	grip.height = 0.12
-	root.add_child(_part(grip, wood, Vector3(0, 0, 0.27), Vector3(0, 0, deg_to_rad(90.0))))
+	grip.top_radius = 0.016
+	grip.bottom_radius = 0.016
+	grip.height = 0.1
+	root.add_child(_part(grip, wood, Vector3(0, 0, 0.385), Vector3(0, 0, deg_to_rad(90.0))))
 	return root
+
+
+## The blade: dished across, pointed at the tip, with a little thickness. With `edge_only`,
+## just the worn strip along the cutting edge, raised a hair so it sits on top.
+func _shovel_blade(edge_only: bool) -> ArrayMesh:
+	const W := 0.115     # half width
+	const L := 0.29      # length, socket to point
+	const DISH := 0.028  # how deep the dish is at the middle
+	var cols := 9
+	var rows := 12
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var shape := func(u: float, v: float, lift: float) -> Vector3:
+		# v 0 at the socket, 1 at the point. The width narrows to the point over the last 40%.
+		var half := W * (1.0 - smoothstep(0.55, 1.0, v) * 0.9) * (0.82 + 0.18 * smoothstep(0.0, 0.2, v))
+		var x := u * half
+		var y := DISH * (u * u) * (1.0 - 0.6 * v) + lift
+		return Vector3(x, y, -v * L)
+	for face in [0, 1]:
+		var off := 0.0 if face == 0 else -0.004
+		for j in rows:
+			var v0 := float(j) / rows
+			var v1 := float(j + 1) / rows
+			if edge_only and v1 < 0.8:
+				continue
+			for i in cols:
+				var u0 := -1.0 + 2.0 * i / cols
+				var u1 := -1.0 + 2.0 * (i + 1) / cols
+				var lift := off + (0.0015 if edge_only else 0.0)
+				var a: Vector3 = shape.call(u0, v0, lift)
+				var b: Vector3 = shape.call(u1, v0, lift)
+				var c: Vector3 = shape.call(u0, v1, lift)
+				var d: Vector3 = shape.call(u1, v1, lift)
+				var tris := [a, c, b, b, c, d] if face == 0 else [a, b, c, b, d, c]
+				for p in tris:
+					st.add_vertex(p)
+	st.generate_normals()
+	return st.commit()
 
 
 func _part(mesh: Mesh, mat: Material, pos: Vector3, rot: Vector3) -> MeshInstance3D:
