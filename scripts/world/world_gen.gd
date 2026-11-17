@@ -854,9 +854,13 @@ func _make_sites_and_roads() -> void:
 		_offset_path(river_by_name("Last Chance Creek"), 0.92, 0.36, -16.0),
 		_offset_path(river_by_name("Tamarack Creek"), 0.95, 0.4, 16.0),
 	]
+	var valley: PackedVector2Array = paths[1]
+	# The creek roads run on to meet the valley road: the cabin road at its lower end, the Last
+	# Chance road at its first point. Water on the way becomes a ford (below).
+	paths[0] = _join(paths[0], valley, false)
+	paths[2] = _join(paths[2], valley, true)
 	# A ford across the main river from the valley road to the Tamarack road.
 	var tam: PackedVector2Array = paths[3]
-	var valley: PackedVector2Array = paths[1]
 	var near := 0
 	for i in valley.size():
 		if valley[i].distance_to(tam[0]) < valley[near].distance_to(tam[0]):
@@ -967,6 +971,26 @@ func _smooth_values(v: PackedFloat32Array, win: int) -> PackedFloat32Array:
 				acc += v[k]
 				cnt += 1
 		out[i] = acc / cnt
+	return out
+
+
+## Extend a road from one end (its start if `at_start`) straight to the nearest point of another.
+func _join(path: PackedVector2Array, to: PackedVector2Array, at_start: bool) -> PackedVector2Array:
+	var end := path[0] if at_start else path[path.size() - 1]
+	var best := to[0]
+	for q in to:
+		if q.distance_to(end) < best.distance_to(end):
+			best = q
+	var n := maxi(1, ceili(end.distance_to(best) / SPACING))
+	var link := PackedVector2Array()
+	for k in range(1, n + 1):
+		link.append(end.lerp(best, float(k) / n))
+	if at_start:
+		link.reverse()
+		link.append_array(path)
+		return link
+	var out := path.duplicate()
+	out.append_array(link)
 	return out
 
 
