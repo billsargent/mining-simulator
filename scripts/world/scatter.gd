@@ -1,111 +1,387 @@
 extends Node3D
-## Set dressing for the test valley: boulders (creek boulders also trap gold), conifers and
-## grass. All meshes are generated in code as placeholders; real art assets come later.
+## Trees, boulders and grass for the big world.
+## Trees and boulders are laid out once per 128 m region (deterministic from the seed) and drawn
+## with cheap stand-ins far away. Grass and collision shapes only exist near the focus.
+## Creek boulders come from the world generator, because they also trap gold.
 
-const Valley = preload("res://scripts/world/valley.gd")
-const Terrain = preload("res://scripts/world/terrain.gd")
-const DepositField = preload("res://scripts/gold/deposit_field.gd")
+const WorldGen = preload("res://scripts/world/world_gen.gd")
+const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Tex = preload("res://scripts/util/tex.gd")
 
-const CREEK_BOULDERS := 26
-const HILL_BOULDERS := 90
-const TREES := 420
+const REGION := 128.0
+const RN := 16
+const TREE_STEP := 9.0
+const ROCK_BLOCK := 512.0
+const GRASS_CELL := 16.0
 const GRASS_STEP := 0.7
-const GRASS_CELL := 4.0
+const GRASS_RADIUS := 60.0
+const COLLIDE_RADIUS := 72.0
+const NEAR_TREES := 230.0
+const MAX_GRASS_TASKS := 6
 
+var world: WorldGen
 var terrain: Terrain
-var valley: Valley
-var deposits: DepositField
+var focus := Vector3.ZERO
 
 var _rng := RandomNumberGenerator.new()
-var _grass_mm: MultiMesh
-var _grass_pos := PackedVector3Array()
-var _grass_cells := {}          # Vector2i -> Array of instance indices
-var _hidden := Transform3D(Basis.from_scale(Vector3(0.0001, 0.0001, 0.0001)), Vector3(0, -50, 0))
-var _exclude: Array[Vector4] = []   # x, z, radius for trees and rocks, radius for grass
+var _trees := {}            # Vector2i region -> PackedFloat32Array [x, y, z, scale, yaw] per tree
+var _rocks := {}            # Vector2i region -> PackedFloat32Array [x, y, z, radius, yaw, variant]
+var _colliders := {}        # Vector2i region -> StaticBody3D
+var _grass := {}            # Vector2i cell -> MultiMeshInstance3D
+var _grass_pos := {}        # Vector2i cell -> PackedVector3Array
+var _grass_tasks := {}
+var _grass_done: Array = []
+var _mutex := Mutex.new()
+var _grass_mesh: ArrayMesh
+var _hidden := Transform3D(Basis.from_scale(Vector3(0.0001, 0.0001, 0.0001)), Vector3(0, -500, 0))
+var _shapes := {}
+var _stream_t := 0.0
 
 
-## Keep trees, rocks and grass out of an area (e.g. around the cabin).
-func exclude(c: Vector3, radius: float, grass_radius: float) -> void:
-	_exclude.append(Vector4(c.x, c.z, radius, grass_radius))
+# --- Layout (thread-safe, run during loading) --------------------------------------------
+
+func layout() -> void:
+	var task := WorkerThreadPool.add_group_task(_layout_region, RN * RN)
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	# Creek boulders go into the region they sit in.
+	for b in world.boulders:
+		var r := Vector2i(clampi(floori(b.x / REGION), 0, RN - 1), clampi(floori(b.z / REGION), 0, RN - 1))
+		var list: PackedFloat32Array = _rocks[r]
+		for v in [b.x, world.surface(b.x, b.z), b.z, b.w, fposmod(b.x * 7.31, TAU), float(int(b.z) % 4)]:
+			list.append(v)
+		_rocks[r] = list
 
 
-func _excluded(x: float, z: float, grass: bool) -> bool:
-	for e in _exclude:
-		var r := e.w if grass else e.z
-		if Vector2(x - e.x, z - e.y).length() < r:
-			return true
-	return false
+func _layout_region(idx: int) -> void:
+	var rx := idx % RN
+	var rz := idx / RN
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(rx, rz, world.world_seed))
+	var trees := PackedFloat32Array()
+	var steps := int(REGION / TREE_STEP)
+	for gj in steps:
+		for gi in steps:
+			var x := rx * REGION + (gi + rng.randf()) * TREE_STEP
+			var z := rz * REGION + (gj + rng.randf()) * TREE_STEP
+			var p := rng.randf()
+			var s := rng.randf_range(0.75, 1.35)
+			var yaw := rng.randf() * TAU
+			if _tree_ok(x, z, p):
+				for v in [x, world.surface(x, z), z, s, yaw]:
+					trees.append(v)
+	var rocks := PackedFloat32Array()
+	for k in 6:
+		var x := rx * REGION + rng.randf() * REGION
+		var z := rz * REGION + rng.randf() * REGION
+		var r := lerpf(0.4, 1.8, pow(rng.randf(), 2.0))
+		var yaw := rng.randf() * TAU
+		var variant := float(rng.randi() % 4)
+		if world.river_info(x, z).x > 12.0 and world.road_weight(x, z) < 0.05 and not world.in_pad(x, z, 3.0):
+			for v in [x, world.surface(x, z), z, r, yaw, variant]:
+				rocks.append(v)
+	_mutex.lock()
+	_trees[Vector2i(rx, rz)] = trees
+	_rocks[Vector2i(rx, rz)] = rocks
+	_mutex.unlock()
 
 
-## After loading a save: tear up the grass wherever the ground was dug.
-func hide_dug_grass() -> void:
-	for i in _grass_pos.size():
-		var p := _grass_pos[i]
-		if terrain.dug_at(p.x, p.z) > 0.3:
-			_grass_mm.set_instance_transform(i, _hidden)
+func _tree_ok(x: float, z: float, p: float) -> bool:
+	if x < 2.0 or z < 2.0 or x > WorldGen.SIZE - 2.0 or z > WorldGen.SIZE - 2.0:
+		return false
+	if world.river_info(x, z).x < 10.0 or world.road_weight(x, z) > 0.05:
+		return false
+	if world.bench_weight(x, z) > 0.3 and p < 0.85:
+		return false
+	if world.in_pad(x, z, 4.0):
+		return false
+	if p > smoothstep(0.35, 0.7, world.forest(x, z)) * 0.85 + 0.06:
+		return false
+	var h := world.surface(x, z)
+	var n := Vector3(h - world.surface(x + 1.5, z), 1.5, h - world.surface(x, z + 1.5)).normalized()
+	return n.y > 0.72
 
 
-func build(world_seed: int) -> void:
-	_rng.seed = world_seed
-	_build_rocks()
-	_build_trees()
-	_build_grass()
+# --- Visuals (main thread) -------------------------------------------------------------------
+
+func build_visuals() -> void:
+	_rng.seed = world.world_seed
+	var bark := StandardMaterial3D.new()
+	bark.albedo_color = Color(0.3, 0.22, 0.16)
+	bark.roughness = 0.95
+	var needles := StandardMaterial3D.new()
+	needles.albedo_color = Color(0.22, 0.32, 0.16)
+	needles.vertex_color_use_as_albedo = true
+	needles.albedo_texture = Tex.noise(0.25, 80, 128)
+	needles.uv1_triplanar = true
+	needles.uv1_scale = Vector3(2.0, 2.0, 2.0)
+	needles.cull_mode = BaseMaterial3D.CULL_DISABLED
+	needles.roughness = 0.95
+	var near_meshes: Array[ArrayMesh] = [_conifer_mesh(bark, needles), _conifer_mesh(bark, needles)]
+	var far_mesh := _far_tree_mesh()
+	for r: Vector2i in _trees:
+		var data: PackedFloat32Array = _trees[r]
+		var count := data.size() / 5
+		if count == 0:
+			continue
+		var center := Vector3((r.x + 0.5) * REGION, 0.0, (r.y + 0.5) * REGION)
+		var lists := [[], []]
+		var all := []
+		for i in count:
+			var o := i * 5
+			var s := data[o + 3]
+			var xf := Transform3D(Basis(Vector3.UP, data[o + 4]).scaled(Vector3(s, s, s)),
+				Vector3(data[o], data[o + 1] - 0.1, data[o + 2]) - center)
+			(lists[i % 2] as Array).append(xf)
+			all.append(xf)
+		for v in 2:
+			var mmi := _mmi(near_meshes[v], lists[v], center)
+			mmi.visibility_range_end = NEAR_TREES
+			mmi.visibility_range_end_margin = 20.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		var far := _mmi(far_mesh, all, center)
+		far.visibility_range_begin = NEAR_TREES - 20.0
+		far.visibility_range_begin_margin = 20.0
+		far.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Boulders, grouped in 512 m blocks per shape.
+	var rock_meshes: Array[ArrayMesh] = []
+	for v in 4:
+		rock_meshes.append(_rock_mesh(v))
+	var rock_mat := StandardMaterial3D.new()
+	rock_mat.albedo_color = Color(0.55, 0.53, 0.5)
+	rock_mat.albedo_texture = Tex.noise(0.03, 70, 256)
+	rock_mat.normal_enabled = true
+	rock_mat.normal_texture = Tex.noise(0.05, 71, 256, true, 6.0)
+	rock_mat.uv1_triplanar = true
+	rock_mat.uv1_scale = Vector3(0.7, 0.7, 0.7)
+	rock_mat.roughness = 0.88
+	var blocks := {}
+	for r: Vector2i in _rocks:
+		var data: PackedFloat32Array = _rocks[r]
+		for i in data.size() / 6:
+			var o := i * 6
+			var bk := Vector3i(floori(data[o] / ROCK_BLOCK), floori(data[o + 2] / ROCK_BLOCK), int(data[o + 5]))
+			if not blocks.has(bk):
+				blocks[bk] = []
+			var rad := data[o + 3]
+			var center := Vector3((bk.x + 0.5) * ROCK_BLOCK, 0.0, (bk.y + 0.5) * ROCK_BLOCK)
+			(blocks[bk] as Array).append(Transform3D(Basis(Vector3.UP, data[o + 4]).scaled(Vector3.ONE * rad),
+				Vector3(data[o], data[o + 1] + rad * 0.12, data[o + 2]) - center))
+	for bk: Vector3i in blocks:
+		var center := Vector3((bk.x + 0.5) * ROCK_BLOCK, 0.0, (bk.y + 0.5) * ROCK_BLOCK)
+		var mmi := _mmi(rock_meshes[bk.z], blocks[bk], center)
+		mmi.material_override = rock_mat
+		mmi.visibility_range_end = 700.0
+	_grass_mesh = _make_grass_mesh()
+	var gmat := ShaderMaterial.new()
+	gmat.shader = load("res://shaders/grass.gdshader")
+	_grass_mesh.surface_set_material(0, gmat)
 	terrain.dug.connect(_on_dug)
 
 
-# --- Boulders ----------------------------------------------------------------------
-
-func _build_rocks() -> void:
-	var meshes: Array[ArrayMesh] = []
-	for v in 5:
-		meshes.append(_rock_mesh(v))
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.53, 0.5)
-	mat.albedo_texture = Tex.noise(0.03, 70, 256)
-	mat.normal_enabled = true
-	mat.normal_texture = Tex.noise(0.05, 71, 256, true, 6.0)
-	mat.uv1_triplanar = true
-	mat.uv1_scale = Vector3(0.7, 0.7, 0.7)
-	mat.roughness = 0.88
-	var placed := 0
-	while placed < CREEK_BOULDERS:
-		var x := _rng.randf_range(6.0, Valley.SIZE - 6.0)
-		var w := valley.half_width(x)
-		var z := valley.center_z(x) + _rng.randf_range(-w * 1.1, w * 1.1)
-		_place_rock(meshes, mat, x, z, _rng.randf_range(0.35, 0.85), true)
-		placed += 1
-	placed = 0
-	var tries := 0
-	while placed < HILL_BOULDERS and tries < 2000:
-		tries += 1
-		var x := _rng.randf_range(4.0, Valley.SIZE - 4.0)
-		var z := _rng.randf_range(4.0, Valley.SIZE - 4.0)
-		if valley.geometry(x, z).y < 10.0 or _excluded(x, z, false):
-			continue
-		_place_rock(meshes, mat, x, z, lerpf(0.4, 1.8, pow(_rng.randf(), 2.0)), false)
-		placed += 1
+func _mmi(mesh: Mesh, xforms: Array, center: Vector3) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.position = center
+	add_child(mmi)
+	return mmi
 
 
-func _place_rock(meshes: Array[ArrayMesh], mat: Material, x: float, z: float, radius: float, in_creek: bool) -> void:
-	var y := terrain.height_at(x, z)
+# --- Streaming near the focus ----------------------------------------------------------------
+
+func _process(delta: float) -> void:
+	_drain_grass()
+	_stream_t -= delta
+	if _stream_t > 0.0:
+		return
+	_stream_t = 0.25
+	_stream_colliders()
+	_stream_grass()
+
+
+## Build everything near the focus right away (loading screen, or after a teleport).
+func build_near_now() -> void:
+	_stream_colliders()
+	var cells := _wanted_cells()
+	var results := []
+	results.resize(cells.size())
+	var task := WorkerThreadPool.add_group_task(func(i: int) -> void:
+		var data := _grass_cell(cells[i])
+		_mutex.lock()
+		results[i] = data
+		_mutex.unlock(), cells.size())
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	for i in cells.size():
+		if not _grass.has(cells[i]):
+			_make_grass(cells[i], results[i])
+
+
+func _exit_tree() -> void:
+	for id in _grass_tasks.values():
+		WorkerThreadPool.wait_for_task_completion(id)
+
+
+func _stream_colliders() -> void:
+	for rz in RN:
+		for rx in RN:
+			var r := Vector2i(rx, rz)
+			var x0 := rx * REGION
+			var z0 := rz * REGION
+			var dx := maxf(maxf(x0 - focus.x, focus.x - (x0 + REGION)), 0.0)
+			var dz := maxf(maxf(z0 - focus.z, focus.z - (z0 + REGION)), 0.0)
+			var dist := sqrt(dx * dx + dz * dz)
+			if dist < COLLIDE_RADIUS and not _colliders.has(r):
+				_colliders[r] = _make_colliders(r)
+			elif dist > COLLIDE_RADIUS + 32.0 and _colliders.has(r):
+				(_colliders[r] as Node).queue_free()
+				_colliders.erase(r)
+
+
+func _make_colliders(r: Vector2i) -> StaticBody3D:
 	var body := StaticBody3D.new()
-	body.position = Vector3(x, y + radius * 0.12, z)
-	var mi := MeshInstance3D.new()
-	mi.mesh = meshes[_rng.randi() % meshes.size()]
-	mi.material_override = mat
-	mi.scale = Vector3.ONE * radius
-	mi.rotation.y = _rng.randf() * TAU
-	body.add_child(mi)
-	var cs := CollisionShape3D.new()
-	var sphere := SphereShape3D.new()
-	sphere.radius = radius * 0.72
-	cs.shape = sphere
-	body.add_child(cs)
 	add_child(body)
-	if in_creek:
-		deposits.boulders.append(Vector4(x, y, z, radius))
+	var trees: PackedFloat32Array = _trees.get(r, PackedFloat32Array())
+	for i in trees.size() / 5:
+		var o := i * 5
+		var cs := CollisionShape3D.new()
+		cs.shape = _shape("tree", snappedf(0.22 * trees[o + 3], 0.05))
+		cs.position = Vector3(trees[o], trees[o + 1] + 2.0, trees[o + 2])
+		body.add_child(cs)
+	var rocks: PackedFloat32Array = _rocks.get(r, PackedFloat32Array())
+	for i in rocks.size() / 6:
+		var o := i * 6
+		var cs := CollisionShape3D.new()
+		cs.shape = _shape("rock", snappedf(rocks[o + 3] * 0.72, 0.05))
+		cs.position = Vector3(rocks[o], rocks[o + 1] + rocks[o + 3] * 0.12, rocks[o + 2])
+		body.add_child(cs)
+	return body
 
+
+func _shape(kind: String, size: float) -> Shape3D:
+	var key := "%s%.2f" % [kind, size]
+	if not _shapes.has(key):
+		if kind == "tree":
+			var c := CylinderShape3D.new()
+			c.radius = size
+			c.height = 4.0
+			_shapes[key] = c
+		else:
+			var s := SphereShape3D.new()
+			s.radius = size
+			_shapes[key] = s
+	return _shapes[key]
+
+
+func _wanted_cells() -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var c0 := Vector2i(floori((focus.x - GRASS_RADIUS) / GRASS_CELL), floori((focus.z - GRASS_RADIUS) / GRASS_CELL))
+	var c1 := Vector2i(floori((focus.x + GRASS_RADIUS) / GRASS_CELL), floori((focus.z + GRASS_RADIUS) / GRASS_CELL))
+	for cz in range(c0.y, c1.y + 1):
+		for cx in range(c0.x, c1.x + 1):
+			var center := Vector2((cx + 0.5) * GRASS_CELL, (cz + 0.5) * GRASS_CELL)
+			if center.distance_to(Vector2(focus.x, focus.z)) < GRASS_RADIUS and cx >= 0 and cz >= 0:
+				out.append(Vector2i(cx, cz))
+	return out
+
+
+func _stream_grass() -> void:
+	var want := {}
+	for c in _wanted_cells():
+		want[c] = true
+		if not _grass.has(c) and not _grass_tasks.has(c) and _grass_tasks.size() < MAX_GRASS_TASKS:
+			_grass_tasks[c] = WorkerThreadPool.add_task(_task_grass.bind(c))
+	for c: Vector2i in _grass.keys():
+		var center := Vector2((c.x + 0.5) * GRASS_CELL, (c.y + 0.5) * GRASS_CELL)
+		if center.distance_to(Vector2(focus.x, focus.z)) > GRASS_RADIUS + 24.0:
+			(_grass[c] as Node).queue_free()
+			_grass.erase(c)
+			_grass_pos.erase(c)
+
+
+func _task_grass(c: Vector2i) -> void:
+	var data := _grass_cell(c)
+	_mutex.lock()
+	_grass_done.append([c, data])
+	_mutex.unlock()
+
+
+func _drain_grass() -> void:
+	_mutex.lock()
+	var done := _grass_done
+	_grass_done = []
+	_mutex.unlock()
+	for item in done:
+		var c: Vector2i = item[0]
+		if _grass_tasks.has(c):
+			WorkerThreadPool.wait_for_task_completion(_grass_tasks[c])
+			_grass_tasks.erase(c)
+		if not _grass.has(c):
+			_make_grass(c, item[1])
+
+
+## Grass clumps for one cell: [x, y, z, scale, stretch, yaw] each. Thread-safe.
+func _grass_cell(c: Vector2i) -> PackedFloat32Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(c.x, c.y, world.world_seed + 5))
+	var out := PackedFloat32Array()
+	var steps := int(GRASS_CELL / GRASS_STEP)
+	for gj in steps:
+		for gi in steps:
+			var x := c.x * GRASS_CELL + (gi + rng.randf()) * GRASS_STEP
+			var z := c.y * GRASS_CELL + (gj + rng.randf()) * GRASS_STEP
+			var s := rng.randf_range(0.7, 1.25)
+			var stretch := rng.randf_range(0.7, 1.15)
+			var yaw := rng.randf() * TAU
+			var skip := rng.randf()
+			var smp := world.sample(x, z)
+			if smp.y > 0.25 or (smp.z > -1.0e8 and smp.x - smp.z < 0.2):
+				continue
+			if skip > 0.55 + 0.45 * (1.0 - world.forest(x, z)) or world.in_pad(x, z, -4.0):
+				continue
+			var h := terrain.height_undug(x, z)
+			if absf(world.surface(x + 0.7, z) - smp.x) > 0.45 or absf(world.surface(x, z + 0.7) - smp.x) > 0.45:
+				continue
+			for v in [x, h - 0.02, z, s, stretch, yaw]:
+				out.append(v)
+	return out
+
+
+func _make_grass(c: Vector2i, data: PackedFloat32Array) -> void:
+	var origin := Vector3(c.x * GRASS_CELL, 0.0, c.y * GRASS_CELL)
+	var xforms := []
+	var pos := PackedVector3Array()
+	for i in data.size() / 6:
+		var o := i * 6
+		if terrain.dug_at(data[o], data[o + 2]) > 0.3:
+			continue
+		var s := data[o + 3]
+		var p := Vector3(data[o], data[o + 1], data[o + 2])
+		xforms.append(Transform3D(Basis(Vector3.UP, data[o + 5]).scaled(Vector3(s, s * data[o + 4], s)), p - origin))
+		pos.append(p)
+	var mmi := _mmi(_grass_mesh, xforms, origin)
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_grass[c] = mmi
+	_grass_pos[c] = pos
+
+
+## Digging tears up the grass around the hole.
+func _on_dug(center: Vector3, radius: float) -> void:
+	var reach := radius + 0.3
+	for c: Vector2i in _grass_pos:
+		var pos: PackedVector3Array = _grass_pos[c]
+		var mm := (_grass[c] as MultiMeshInstance3D).multimesh
+		for i in pos.size():
+			if Vector2(pos[i].x - center.x, pos[i].z - center.z).length() < reach:
+				mm.set_instance_transform(i, _hidden)
+
+
+# --- Meshes --------------------------------------------------------------------------------
 
 func _rock_mesh(variant: int) -> ArrayMesh:
 	var sphere := SphereMesh.new()
@@ -137,70 +413,6 @@ func _rock_mesh(variant: int) -> ArrayMesh:
 	return st.commit()
 
 
-# --- Trees -------------------------------------------------------------------------
-
-func _build_trees() -> void:
-	var bark := StandardMaterial3D.new()
-	bark.albedo_color = Color(0.3, 0.22, 0.16)
-	bark.roughness = 0.95
-	var needles := StandardMaterial3D.new()
-	needles.albedo_color = Color(0.22, 0.32, 0.16)
-	needles.vertex_color_use_as_albedo = true
-	needles.albedo_texture = Tex.noise(0.25, 80, 128)
-	needles.uv1_triplanar = true
-	needles.uv1_scale = Vector3(2.0, 2.0, 2.0)
-	needles.cull_mode = BaseMaterial3D.CULL_DISABLED
-	needles.roughness = 0.95
-	var variants: Array[ArrayMesh] = []
-	var transforms: Array = []
-	for v in 3:
-		variants.append(_conifer_mesh(bark, needles))
-		transforms.append([])
-	var density := FastNoiseLite.new()
-	density.seed = 90
-	density.frequency = 0.02
-	var trunks := StaticBody3D.new()
-	add_child(trunks)
-	var count := 0
-	var tries := 0
-	while count < TREES and tries < 8000:
-		tries += 1
-		var x := _rng.randf_range(2.0, Valley.SIZE - 2.0)
-		var z := _rng.randf_range(2.0, Valley.SIZE - 2.0)
-		var g := valley.geometry(x, z)
-		if g.y < 16.0 or _excluded(x, z, false):
-			continue
-		if g.x > 0.0 and valley.bench_mask(g.x) > 0.5 and _rng.randf() < 0.85:
-			continue          # keep the old bench mostly open
-		if density.get_noise_2d(x, z) < -0.15:
-			continue
-		if terrain.normal_at(x, z).y < 0.75:
-			continue
-		var y := terrain.height_at(x, z)
-		var s := _rng.randf_range(0.75, 1.35)
-		var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.9, 1.15), s))
-		(transforms[_rng.randi() % 3] as Array).append(Transform3D(basis, Vector3(x, y - 0.1, z)))
-		var cs := CollisionShape3D.new()
-		var cyl := CylinderShape3D.new()
-		cyl.radius = 0.22 * s
-		cyl.height = 4.0
-		cs.shape = cyl
-		cs.position = Vector3(x, y + 2.0, z)
-		trunks.add_child(cs)
-		count += 1
-	for v in 3:
-		var list: Array = transforms[v]
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = variants[v]
-		mm.instance_count = list.size()
-		for i in list.size():
-			mm.set_instance_transform(i, list[i])
-		var mmi := MultiMeshInstance3D.new()
-		mmi.multimesh = mm
-		add_child(mmi)
-
-
 func _conifer_mesh(bark: Material, needles: Material) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	var trunk := CylinderMesh.new()
@@ -214,7 +426,6 @@ func _conifer_mesh(bark: Material, needles: Material) -> ArrayMesh:
 	st.append_from(trunk, 0, Transform3D(Basis(), Vector3(0, 3.75, 0)))
 	st.commit(mesh)
 	mesh.surface_set_material(0, bark)
-
 	st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var tiers := 7
@@ -235,16 +446,34 @@ func _conifer_mesh(bark: Material, needles: Material) -> ArrayMesh:
 		for k in n:
 			var p0 := ring[k]
 			var p1 := ring[(k + 1) % n]
-			# outer surface
 			_vert(st, apex, Vector3.UP, 1.0)
 			_vert(st, p0, Vector3(p0.x, radius * 0.9, p0.z).normalized(), 0.55)
 			_vert(st, p1, Vector3(p1.x, radius * 0.9, p1.z).normalized(), 0.55)
-			# underside
 			_vert(st, under, Vector3.DOWN, 0.25)
 			_vert(st, p1, Vector3(p1.x, -radius, p1.z).normalized(), 0.4)
 			_vert(st, p0, Vector3(p0.x, -radius, p0.z).normalized(), 0.4)
 	st.commit(mesh)
 	mesh.surface_set_material(1, needles)
+	return mesh
+
+
+## A cheap stand-in for distant trees: one dark cone on a short trunk.
+func _far_tree_mesh() -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.9
+	cone.height = 7.2
+	cone.radial_segments = 6
+	cone.rings = 1
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.append_from(cone, 0, Transform3D(Basis(), Vector3(0, 5.0, 0)))
+	st.commit(mesh)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.12, 0.18, 0.1)
+	mat.roughness = 1.0
+	mesh.surface_set_material(0, mat)
 	return mesh
 
 
@@ -254,57 +483,7 @@ func _vert(st: SurfaceTool, p: Vector3, n: Vector3, shade: float) -> void:
 	st.add_vertex(p)
 
 
-# --- Grass -------------------------------------------------------------------------
-
-func _build_grass() -> void:
-	var mesh := _grass_mesh()
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/grass.gdshader")
-	mesh.surface_set_material(0, mat)
-	var density := FastNoiseLite.new()
-	density.seed = 91
-	density.frequency = 0.04
-	var xforms: Array[Transform3D] = []
-	var x := 1.0
-	while x < Valley.SIZE - 1.0:
-		var z := 1.0
-		while z < Valley.SIZE - 1.0:
-			var px := x + _rng.randf_range(-0.4, 0.4)
-			var pz := z + _rng.randf_range(-0.4, 0.4)
-			z += GRASS_STEP
-			if terrain.gravel_at(px, pz) > 0.25 or _excluded(px, pz, true):
-				continue
-			var y := terrain.height_at(px, pz)
-			if y < Valley.WATER_LEVEL + 0.2:
-				continue
-			if terrain.normal_at(px, pz).y < 0.8:
-				continue
-			if density.get_noise_2d(px, pz) < -0.35:
-				continue
-			var s := _rng.randf_range(0.7, 1.25)
-			var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.7, 1.15), s))
-			var pos := Vector3(px, y - 0.02, pz)
-			var idx := xforms.size()
-			xforms.append(Transform3D(basis, pos))
-			_grass_pos.append(pos)
-			var cell := Vector2i(floori(px / GRASS_CELL), floori(pz / GRASS_CELL))
-			if not _grass_cells.has(cell):
-				_grass_cells[cell] = []
-			(_grass_cells[cell] as Array).append(idx)
-		x += GRASS_STEP
-	_grass_mm = MultiMesh.new()
-	_grass_mm.transform_format = MultiMesh.TRANSFORM_3D
-	_grass_mm.mesh = mesh
-	_grass_mm.instance_count = xforms.size()
-	for i in xforms.size():
-		_grass_mm.set_instance_transform(i, xforms[i])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = _grass_mm
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mmi)
-
-
-func _grass_mesh() -> ArrayMesh:
+func _make_grass_mesh() -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var w := 0.75
@@ -316,32 +495,9 @@ func _grass_mesh() -> ArrayMesh:
 		var br := dir
 		var tl := bl + Vector3(0, ht, 0)
 		var tr := br + Vector3(0, ht, 0)
-		_gvert(st, tl, Vector2(0, 0))
-		_gvert(st, tr, Vector2(1, 0))
-		_gvert(st, bl, Vector2(0, 1))
-		_gvert(st, tr, Vector2(1, 0))
-		_gvert(st, br, Vector2(1, 1))
-		_gvert(st, bl, Vector2(0, 1))
+		for pair in [[tl, Vector2(0, 0)], [tr, Vector2(1, 0)], [bl, Vector2(0, 1)],
+				[tr, Vector2(1, 0)], [br, Vector2(1, 1)], [bl, Vector2(0, 1)]]:
+			st.set_normal(Vector3.UP)
+			st.set_uv(pair[1])
+			st.add_vertex(pair[0])
 	return st.commit()
-
-
-func _gvert(st: SurfaceTool, p: Vector3, uv: Vector2) -> void:
-	st.set_normal(Vector3.UP)
-	st.set_uv(uv)
-	st.add_vertex(p)
-
-
-## Digging tears up the grass around the hole.
-func _on_dug(center: Vector3, radius: float) -> void:
-	var reach := radius + 0.3
-	var c0 := Vector2i(floori((center.x - reach) / GRASS_CELL), floori((center.z - reach) / GRASS_CELL))
-	var c1 := Vector2i(floori((center.x + reach) / GRASS_CELL), floori((center.z + reach) / GRASS_CELL))
-	for cx in range(c0.x, c1.x + 1):
-		for cz in range(c0.y, c1.y + 1):
-			var cell := Vector2i(cx, cz)
-			if not _grass_cells.has(cell):
-				continue
-			for idx in _grass_cells[cell]:
-				var p := _grass_pos[idx]
-				if Vector2(p.x - center.x, p.z - center.z).length() < reach:
-					_grass_mm.set_instance_transform(idx, _hidden)

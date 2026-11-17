@@ -12,7 +12,7 @@ See [DESIGN.md](DESIGN.md) for the full plan and roadmap.
 |---|---|
 | M1 Color in the pan: digging, gold that sinks to bedrock, panning | Done |
 | M2 Bucket to bar: sluice, high banker and pump, cabin cleanup, furnace, selling, saving | Done |
-| M3 Go far: big world, vehicles, map and waypoints, day and night | In progress |
+| M3 Go far: 2×2 km world, ATV and pickup, map and waypoints, day and night | In review |
 | M4 to M7: old mines, economy and claims, the full world, polish | Planned |
 
 ## Running it
@@ -32,7 +32,11 @@ The game saves on its own every minute and when you quit. Esc opens the menu.
 | F | Pick up or set down equipment |
 | Mouse wheel | Adjust a sluice's angle |
 | R | Dump your bucket |
+| M | Map: left click drops a waypoint, right click removes one |
+| L | Headlamp |
 | Esc | Menu |
+
+Driving (E on a vehicle to get in): W/S drive, A/D steer, Space brake, V camera, R flip upright, E get out. To haul equipment, carry it to a vehicle and left click.
 
 While panning: hold left mouse to shake (gold sinks), hold right mouse to tilt and wash, move the mouse forward and back to set the tilt, Q to dump the pan.
 
@@ -44,7 +48,9 @@ Run headless with the Godot console build:
 godot --headless --path . --script res://tests/test_pan.gd
 godot --headless --path . --script res://tests/test_deposits.gd
 godot --headless --path . --script res://tests/test_recovery.gd
+godot --headless --path . --script res://tests/test_world.gd
 godot --headless --path . -- --selftest
+godot --headless --path . -- --drivetest
 ```
 
 `scripts/main.gd` lists more harness flags (screenshots, frame rate, save round trip).

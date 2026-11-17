@@ -145,6 +145,7 @@ static func label(parent: Node3D, text: String, pos: Vector3, size: int = 40) ->
 	l.modulate = Color(0.95, 0.92, 0.85)
 	l.outline_size = 8
 	l.outline_modulate = Color(0, 0, 0, 0.8)
+	l.shaded = true
 	parent.add_child(l)
 	return l
 

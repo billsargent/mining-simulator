@@ -62,7 +62,9 @@ func _button(box: VBoxContainer, text: String, action: Callable) -> Button:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_mouse"):
-		if visible:
+		if not visible and main.map_view.visible:
+			main.map_view.toggle()
+		elif visible:
 			_resume()
 		else:
 			open()

@@ -3,7 +3,9 @@ extends CanvasLayer
 ## and the panning guide.
 
 const PanSim = preload("res://scripts/panning/pan_sim.gd")
+const Compass = preload("res://scripts/ui/compass.gd")
 
+var compass: Compass
 var _prompt: RichTextLabel
 var _status: Label
 var _goal: Label
@@ -30,6 +32,11 @@ func _ready() -> void:
 	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_anchor(dot, Vector4(0.5, 0.5, 0.5, 0.5), Vector4(-2, -2, 2, 2))
 	root.add_child(dot)
+
+	compass = Compass.new()
+	compass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor(compass, Vector4(0.5, 0, 0.5, 0), Vector4(-320, 8, 320, 64))
+	root.add_child(compass)
 
 	var status_box := _panel()
 	_anchor(status_box, Vector4(0, 0, 0, 0), Vector4(16, 16, 16, 16))
@@ -62,7 +69,7 @@ func _ready() -> void:
 	_toast = _label(24)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_anchor(_toast, Vector4(0.2, 0.14, 0.8, 0.14), Vector4(0, 0, 0, 80))
+	_anchor(_toast, Vector4(0.3, 0.12, 0.85, 0.12), Vector4(0, 0, 0, 80))
 	root.add_child(_toast)
 
 	_pan_box = _panel()
@@ -80,7 +87,7 @@ func _ready() -> void:
 	root.add_child(_pan_box)
 
 	_help = _label(16)
-	_help.text = "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   Esc menu"
+	_help.text = "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
 	_help.modulate = Color(1, 1, 1, 0.75)
 	_anchor(_help, Vector4(0, 1, 1, 1), Vector4(16, -36, -16, -10))
 	root.add_child(_help)
@@ -99,9 +106,9 @@ func set_prompt(bbcode: String) -> void:
 		_prompt.text = t
 
 
-func set_status(inv, bucket_capacity: int) -> void:
+func set_status(inv, bucket_capacity: int, clock: String = "") -> void:
 	var lines := PackedStringArray()
-	lines.append("$%d" % inv.money)
+	lines.append("$%d" % inv.money + ("      " + clock if clock != "" else ""))
 	lines.append("Bucket   %d / %d" % [inv.bucket.size(), bucket_capacity])
 	if not inv.cons.is_empty():
 		lines.append("Concentrate   %d jar%s" % [inv.cons.size(), "" if inv.cons.size() == 1 else "s"])
@@ -132,6 +139,11 @@ func toast(text: String, color: Color = Color(1, 1, 1), seconds: float = 3.5) ->
 func show_pan(on: bool) -> void:
 	_pan_box.visible = on
 	_help.visible = not on
+
+
+func set_help(text: String) -> void:
+	if _help.text != text:
+		_help.text = text
 
 
 func set_pan_status(tilt: float, target: float, washing: bool, left: float, done: bool, lost: int) -> void:

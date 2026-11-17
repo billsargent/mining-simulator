@@ -23,7 +23,7 @@ func _init() -> void:
 
 
 func water_problem() -> String:
-	if terrain.height_at(global_position.x, global_position.z) < Valley.WATER_LEVEL:
+	if terrain.water_depth(global_position.x, global_position.z) > 0.0:
 		return "set it up on dry ground"
 	if pump == null:
 		return "no water: set the pump at the creek's edge within %d m" % int(HOSE_RANGE)
@@ -42,8 +42,10 @@ func refresh_pump() -> void:
 func _find_pump():
 	var best = null
 	var best_d := HOSE_RANGE
+	if loaded_on != null:
+		return null
 	for m in get_tree().get_nodes_in_group("machines"):
-		if m.kind != "pump" or m.carried or m.water_problem() != "":
+		if m.kind != "pump" or m.carried or m.loaded_on != null or m.water_problem() != "":
 			continue
 		var d := global_position.distance_to(m.global_position)
 		if d < best_d:
@@ -62,7 +64,7 @@ func _update_visuals(delta: float) -> void:
 	_check_t -= delta
 	if _check_t <= 0.0:
 		_check_t = 0.5
-		pump = _find_pump()
+		pump = null if loaded_on != null else _find_pump()
 		_rebuild_hose()
 
 
@@ -112,7 +114,7 @@ func _build() -> void:
 
 
 func _rebuild_hose() -> void:
-	if pump == null or carried:
+	if pump == null or carried or loaded_on != null:
 		_hose.visible = false
 		_hose_key = ""
 		return
@@ -130,7 +132,7 @@ func _rebuild_hose() -> void:
 	for i in steps + 1:
 		var f := float(i) / steps
 		var p := a.lerp(b, f)
-		var ground := maxf(terrain.height_at(p.x, p.z), Valley.WATER_LEVEL - 0.05) + 0.05
+		var ground := maxf(terrain.height_at(p.x, p.z), terrain.water_level(p.x, p.z) - 0.05) + 0.05
 		var to_end := minf(f, 1.0 - f) * flat
 		p.y = lerpf(p.y, ground, clampf(to_end / 1.0, 0.0, 1.0))
 		pts.append(p)
@@ -141,7 +143,7 @@ func _rebuild_hose() -> void:
 func _update_tailings() -> void:
 	if _tailings == null or _tilt == null or not is_inside_tree():
 		return
-	_tailings.visible = processed_total > 0 and not carried
+	_tailings.visible = processed_total > 0 and not carried and loaded_on == null
 	var outlet := _tilt.to_global(Vector3(1.55, 0.0, 0.0))
 	var s := clampf(0.15 + 0.05 * sqrt(float(processed_total)), 0.15, 1.1)
 	_tailings.global_position = Vector3(outlet.x, terrain.height_at(outlet.x, outlet.z), outlet.z)

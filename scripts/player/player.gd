@@ -1,10 +1,10 @@
 extends CharacterBody3D
-## The prospector: first-person movement, digging, panning, and carrying and using equipment.
+## The prospector: first-person movement, digging, panning, carrying and hauling equipment,
+## driving, and a headlamp.
 
 const PanView = preload("res://scripts/panning/pan_view.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
-const Valley = preload("res://scripts/world/valley.gd")
-const Terrain = preload("res://scripts/world/terrain.gd")
+const Terrain = preload("res://scripts/world/world_terrain.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
@@ -24,16 +24,23 @@ const DIG_DEPTH := 0.15
 const DIG_RADIUS := 0.85
 const FEED_RANGE := 4.5
 const PAN_PITCH := -0.22
+const WALK_HELP := "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
+const DRIVE_HELP := "W/S drive   A/D steer   Space brake   V camera   R flip upright   E get out   M map   Esc menu"
 
 var terrain: Terrain
 var deposits: DepositField
 var hud: Hud
 var inv := Inventory.new()
+var clock := ""
+var map_open := false
 
 var camera: Camera3D
 var pan_view: PanView = null
 var carrying = null                   # the machine being carried, if any
+var driving = null                    # the vehicle being driven, if any
 
+var _col: CollisionShape3D
+var _lamp: SpotLight3D
 var _pan_dirt = null
 var _pan_source := ""
 var _target = null                    # what the crosshair is on, if it can be used
@@ -52,10 +59,10 @@ func _ready() -> void:
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.32
 	shape.height = 1.8
-	var col := CollisionShape3D.new()
-	col.shape = shape
-	col.position.y = 0.9
-	add_child(col)
+	_col = CollisionShape3D.new()
+	_col.shape = shape
+	_col.position.y = 0.9
+	add_child(_col)
 	floor_snap_length = 0.35
 	camera = Camera3D.new()
 	camera.position.y = EYE_HEIGHT
@@ -64,6 +71,14 @@ func _ready() -> void:
 	camera.far = 1500.0
 	add_child(camera)
 	camera.make_current()
+	_lamp = SpotLight3D.new()
+	_lamp.spot_range = 24.0
+	_lamp.spot_angle = 30.0
+	_lamp.light_energy = 2.2
+	_lamp.light_color = Color(1.0, 0.96, 0.88)
+	_lamp.position = Vector3(0.1, 0.05, 0.0)
+	_lamp.visible = false
+	camera.add_child(_lamp)
 	_shovel = _make_shovel()
 	camera.add_child(_shovel)
 	_shovel_rest = _shovel.transform
@@ -76,7 +91,17 @@ func grace() -> void:
 	_dig_cd = maxf(_dig_cd, 0.3)
 
 
+func headlamp_on() -> bool:
+	return _lamp.visible
+
+
+func set_headlamp(on: bool) -> void:
+	_lamp.visible = on
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if driving != null or map_open:
+		return
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if event is InputEventMouseMotion:
 		if captured and pan_view == null and _look_grace <= 0.0:
@@ -95,16 +120,27 @@ func _unhandled_input(event: InputEvent) -> void:
 				_target.scroll(self, 1)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				_target.scroll(self, -1)
+	elif event.is_action_pressed("headlamp"):
+		_lamp.visible = not _lamp.visible
 
 
 func _physics_process(delta: float) -> void:
 	_look_grace -= delta
 	_dig_cd -= delta
 	_interact_block -= delta
+	_hud_t -= delta
+	if _hud_t <= 0.0:
+		_hud_t = 0.2
+		refresh_hud()
+	if driving != null:
+		global_position = driving.seat_position()
+		velocity = Vector3.ZERO
+		hud.set_prompt("[b]%s[/b]   %d km/h" % [driving.display_name, roundi(driving.speed_kmh())])
+		return
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 	var target := Vector3.ZERO
-	if pan_view == null:
+	if pan_view == null and not map_open:
 		var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		var dir := transform.basis * Vector3(input.x, 0.0, input.y)
 		dir.y = 0.0
@@ -120,11 +156,7 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, target.x, ACCEL * delta)
 	velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
 	move_and_slide()
-	_hud_t -= delta
-	if _hud_t <= 0.0:
-		_hud_t = 0.2
-		refresh_hud()
-	if pan_view != null:
+	if pan_view != null or map_open:
 		return
 	if carrying != null:
 		_update_carry()
@@ -138,6 +170,8 @@ func _physics_process(delta: float) -> void:
 		if _target != null:
 			_target.interact(self)
 			refresh_hud()
+			if driving != null:
+				return
 		else:
 			_try_pan()
 	if Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
@@ -176,6 +210,32 @@ func _aiming_at_ground() -> bool:
 		return false
 	var col: Object = _aim.get("collider")
 	return col is Node and (col as Node).is_in_group("terrain")
+
+
+# --- Driving -----------------------------------------------------------------------
+
+func begin_driving(vehicle) -> void:
+	driving = vehicle
+	_col.disabled = true
+	_shovel.visible = false
+	velocity = Vector3.ZERO
+	hud.set_help(DRIVE_HELP)
+	inv.complete_goal("drive")
+
+
+func end_driving(spot: Vector3, yaw: float) -> void:
+	driving = null
+	global_position = spot
+	rotation = Vector3(0.0, yaw, 0.0)
+	camera.rotation = Vector3.ZERO
+	_col.disabled = false
+	_shovel.visible = true
+	velocity = Vector3.ZERO
+	camera.make_current()
+	_interact_block = 0.3
+	hud.set_help(WALK_HELP)
+	hud.set_prompt("")
+	grace()
 
 
 # --- Digging -----------------------------------------------------------------------
@@ -237,10 +297,12 @@ func _animate_dig() -> void:
 # --- Equipment ---------------------------------------------------------------------
 
 func start_carry(machine) -> void:
+	if machine.loaded_on != null:
+		machine.loaded_on.unload_cargo(machine)
 	carrying = machine
 	machine.set_carried(true)
 	_shovel.visible = false
-	hud.toast("Carrying the %s. Left mouse (or F) sets it down." % machine.display_name.to_lower())
+	hud.toast("Carrying the %s. Left mouse (or F) sets it down, also onto a vehicle." % machine.display_name.to_lower())
 
 
 func _update_carry() -> void:
@@ -249,9 +311,31 @@ func _update_carry() -> void:
 	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 6.0)
 	query.exclude = [get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit_node: Node = null
+	if not hit.is_empty():
+		hit_node = hit.get("collider") as Node
+	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var pressed := captured and (Input.is_action_just_pressed("dig") or Input.is_action_just_pressed("carry"))
+	# Aiming at a vehicle with room: load it on.
+	if hit_node != null and hit_node.is_in_group("vehicles") and from.distance_to(hit["position"]) < 4.0:
+		var v = hit_node
+		if v.free_slot() >= 0:
+			hud.set_prompt("[b]Carrying: %s[/b]\n%s Load it onto the %s" % [carrying.display_name, Hud.key("Left mouse"), str(v.display_name)])
+			if pressed:
+				var m = carrying
+				carrying = null
+				v.load_cargo(m)
+				_shovel.visible = true
+				_dig_cd = 0.4
+				_interact_block = 0.2
+				inv.complete_goal("haul")
+				hud.toast("Loaded the %s onto the %s." % [m.display_name.to_lower(), str(v.display_name)], Color(0.6, 1.0, 0.6))
+			return
+		hud.set_prompt("[b]Carrying: %s[/b]\nThe %s is full." % [carrying.display_name, str(v.display_name)])
+		return
 	var p: Vector3
 	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
-	if hit.is_empty() or not ((hit.get("collider") as Node) != null and (hit.get("collider") as Node).is_in_group("terrain")):
+	if hit_node == null or not hit_node.is_in_group("terrain"):
 		p = global_position + flat * 3.0
 	else:
 		p = hit["position"]
@@ -268,8 +352,7 @@ func _update_carry() -> void:
 		t += "[color=#ffa060]It won't run here: %s.[/color]" % problem
 	t += "\n%s Set it down" % Hud.key("Left mouse")
 	hud.set_prompt(t)
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
-	if captured and (Input.is_action_just_pressed("dig") or Input.is_action_just_pressed("carry")):
+	if pressed:
 		_set_down()
 
 
@@ -310,7 +393,7 @@ func _try_pan() -> void:
 		hud.toast("Nothing to pan. Dig some gravel first (left mouse).")
 		return
 	if not _near_water():
-		hud.toast("You need water to pan. Get to the edge of the creek, or use the wash tub at the cabin.")
+		hud.toast("You need water to pan. Get to the edge of a creek, or use the wash tub at the cabin.")
 		return
 	if not inv.bucket.is_empty():
 		start_panning(inv.bucket.pop_front(), "bucket")
@@ -359,6 +442,9 @@ func _on_pan_finished(kept: PackedFloat32Array, lost: PackedFloat32Array, _black
 		msg = "Pan %d: %d piece%s of gold, %.3f g" % [inv.pans, kept.size(), "" if kept.size() == 1 else "s", grams]
 	if _pan_source == "bucket":
 		inv.complete_goal("pan")
+		var src: Vector3 = _pan_dirt.source
+		if src != Vector3.ZERO:
+			inv.log_sample(src.x, src.z, grams)
 	if not lost.is_empty():
 		msg += "   (%d washed out)" % lost.size()
 	if biggest >= Inventory.NUGGET_MASS:
@@ -386,22 +472,22 @@ func _end_panning() -> void:
 
 
 func _near_water() -> bool:
-	var level := Valley.WATER_LEVEL - 0.02
 	var fwd := -global_basis.z
 	for d: float in [0.0, 0.8, 1.6, 2.4]:
 		var p := global_position + fwd * d
-		if terrain.height_at(p.x, p.z) < level:
+		if terrain.water_depth(p.x, p.z) > 0.02:
 			return true
-	for k in 8:
-		var a := TAU * k / 8.0
-		var p := global_position + Vector3(cos(a), 0.0, sin(a)) * 1.6
-		if terrain.height_at(p.x, p.z) < level:
-			return true
+	for ring: float in [1.2, 2.2]:
+		for k in 10:
+			var a := TAU * k / 10.0
+			var p := global_position + Vector3(cos(a), 0.0, sin(a)) * ring
+			if terrain.water_depth(p.x, p.z) > 0.02:
+				return true
 	return false
 
 
 func _in_water() -> bool:
-	return terrain.height_at(global_position.x, global_position.z) < Valley.WATER_LEVEL - 0.15
+	return terrain.water_depth(global_position.x, global_position.z) > 0.15
 
 
 # --- HUD and visuals ---------------------------------------------------------------
@@ -428,7 +514,7 @@ func _update_prompt() -> void:
 
 
 func refresh_hud() -> void:
-	hud.set_status(inv, BUCKET_CAPACITY)
+	hud.set_status(inv, BUCKET_CAPACITY, clock)
 	hud.set_goal(inv.next_goal())
 
 

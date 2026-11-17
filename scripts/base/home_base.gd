@@ -3,8 +3,8 @@ extends Node3D
 ## buyer's box, an order board, and an open shed where equipment is kept.
 ## Local axes: +Z faces the creek.
 
-const Terrain = preload("res://scripts/world/terrain.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
+const CabinDoor = preload("res://scripts/base/cabin_door.gd")
 const WashTub = preload("res://scripts/base/wash_tub.gd")
 const Furnace = preload("res://scripts/base/furnace.gd")
 const ShipBox = preload("res://scripts/base/ship_box.gd")
@@ -16,6 +16,7 @@ const CABIN_Z := -1.6
 const LOG_R := 0.14
 const LOGS := 9
 const SLOTS = [Vector3(-5.6, 0, -1.2), Vector3(-8.5, 0, -1.3), Vector3(-6.9, 0, -0.1)]
+const PARKING = [Vector3(-6.5, 0, 4.2), Vector3(9.0, 0, 3.5)]     # ATV by the shed, pickup by the furnace
 
 var center := Vector3.ZERO
 var spawn_point := Vector3.ZERO
@@ -26,9 +27,9 @@ var ship_box
 var order_board
 
 
-func build(terrain: Terrain, site: Vector3, facing: Vector3) -> void:
-	var h := terrain.height_at(site.x, site.z)
-	terrain.flatten(site, 12.0, h)
+## The site is already levelled by the world generator.
+func build(terrain, site: Vector3, facing: Vector3) -> void:
+	var h: float = terrain.height_at(site.x, site.z)
 	center = Vector3(site.x, h, site.z)
 	position = center
 	var f := facing.normalized()
@@ -50,6 +51,12 @@ func slot_position(i: int) -> Vector3:
 
 func slot_yaw() -> float:
 	return rotation.y
+
+
+## Where vehicle i parks, and which way it faces (nose toward the creek road).
+func parking(i: int) -> Transform3D:
+	var p := to_global(PARKING[i])
+	return Transform3D(Basis(Vector3.UP, rotation.y + PI * 0.5), p)
 
 
 func _station(script: GDScript, pos: Vector3) -> Node:
@@ -74,8 +81,12 @@ func _cabin() -> void:
 	var wall_h := LOG_R + LOGS * step
 	# Door and window on the front wall.
 	var dark := Parts.wood("door", Color(0.27, 0.19, 0.12))
-	Parts.box(self, Vector3(0.95, 2.0, 0.06), Vector3(0.9, 1.0, front + LOG_R + 0.02), dark)
-	Parts.box(self, Vector3(0.06, 0.06, 0.04), Vector3(0.52, 1.0, front + LOG_R + 0.07), Parts.steel())
+	var door := CabinDoor.new()
+	door.position = Vector3(0.9, 0.0, front + LOG_R + 0.02)
+	add_child(door)
+	Parts.box(door, Vector3(0.95, 2.0, 0.06), Vector3(0, 1.0, 0), dark)
+	Parts.box(door, Vector3(0.06, 0.06, 0.04), Vector3(-0.38, 1.0, 0.05), Parts.steel())
+	Parts.collider(door, Vector3(0.95, 2.0, 0.2), Vector3(0, 1.0, 0.05))
 	var glass := Parts.mat("glass", Color(0.07, 0.09, 0.11), 0.08, 0.3)
 	Parts.box(self, Vector3(0.9, 0.7, 0.04), Vector3(-1.4, 1.45, front + LOG_R + 0.01), glass)
 	for frame in [[Vector3(1.0, 0.07, 0.06), Vector3(-1.4, 1.83, 0)], [Vector3(1.0, 0.07, 0.06), Vector3(-1.4, 1.07, 0)],

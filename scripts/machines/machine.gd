@@ -5,8 +5,7 @@ extends StaticBody3D
 
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const Recovery = preload("res://scripts/machines/recovery.gd")
-const Valley = preload("res://scripts/world/valley.gd")
-const Terrain = preload("res://scripts/world/terrain.gd")
+const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 
@@ -22,7 +21,8 @@ var seconds_per_shovel := 1.6
 var recovery_bonus := 0.0
 var angle := 6.5
 var terrain: Terrain
-var valley: Valley
+var loaded_on = null                   # the vehicle carrying it, if any
+var world_parent: Node                 # where it lives when not on a vehicle
 var hopper: Array = []                 # Paydirt waiting to go through
 var caught := PackedFloat32Array()     # gold sitting in the riffles
 var caught_sand := 0.0
@@ -42,9 +42,9 @@ var _flecks: MultiMesh
 var _spray: CPUParticles3D
 
 
-func setup(t: Terrain, v: Valley) -> void:
+func setup(t: Terrain) -> void:
 	terrain = t
-	valley = v
+	world_parent = get_parent()
 	_rng.randomize()
 	add_to_group("machines")
 	_build()
@@ -87,7 +87,27 @@ func _update_visuals(_delta: float) -> void:
 # --- Processing -------------------------------------------------------------------
 
 func is_running() -> bool:
-	return not carried and water_problem() == ""
+	return not carried and loaded_on == null and water_problem() == ""
+
+
+## Ride on a vehicle: parented to its cargo slot, not running, only hit by the "use" ray.
+func load_onto(vehicle, slot: Node3D) -> void:
+	loaded_on = vehicle
+	carried = false
+	reparent(slot, false)
+	transform = Transform3D.IDENTITY
+	collision_layer = 2
+	_marker.visible = false
+	for g in find_children("*", "GeometryInstance3D", true, false):
+		if g != _marker:
+			(g as GeometryInstance3D).transparency = 0.0
+	_on_moved()
+
+
+func unload() -> void:
+	loaded_on = null
+	reparent(world_parent, true)
+	collision_layer = 1
 
 
 func hopper_space() -> int:
@@ -155,6 +175,8 @@ func prompt(player) -> String:
 		t += "\nHopper %d/%d    Gold in the riffles: %d pieces    Angle %.1f°  %s" % [
 			hopper.size(), hopper_capacity, caught.size(), angle, _zone_bb()]
 	var acts := PackedStringArray()
+	if loaded_on != null:
+		return t + "\n" + Hud.key("F") + " Take it off the " + str(loaded_on.display_name).to_lower()
 	if processes:
 		if not player.inv.bucket.is_empty() and hopper_space() > 0:
 			acts.append(Hud.key("E") + " Dump your bucket in")
@@ -200,7 +222,7 @@ func info_text() -> String:
 
 func set_carried(c: bool) -> void:
 	carried = c
-	collision_layer = 0 if c else 1
+	collision_layer = 0 if c else (2 if loaded_on != null else 1)
 	_marker.visible = c
 	for g in find_children("*", "GeometryInstance3D", true, false):
 		if g != _marker:
@@ -215,6 +237,8 @@ func _apply_angle() -> void:
 func _status_bb() -> String:
 	if carried:
 		return ""
+	if loaded_on != null:
+		return "[color=#a0c8ff]On the %s[/color]" % str(loaded_on.display_name).to_lower()
 	var problem := water_problem()
 	if problem != "":
 		return "[color=#ffa060]Not running: %s[/color]" % problem
