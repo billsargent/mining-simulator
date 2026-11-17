@@ -45,16 +45,29 @@ var boulders: Array[Vector4] = []   # creek boulders: x, 0, z, radius
 var progress := ""
 var progress_frac := 0.0      # 0..1, read by the loading screen while generate() runs on a thread
 
-var f_base := PackedFloat32Array()
-var f_d := PackedFloat32Array()
-var f_wl := PackedFloat32Array()
-var f_hw := PackedFloat32Array()
-var f_bend := PackedFloat32Array()
-var f_rich := PackedFloat32Array()
-var f_road := PackedFloat32Array()
-var f_road_h := PackedFloat32Array()
-var f_bench := PackedFloat32Array()
-var f_bench_h := PackedFloat32Array()
+# Detail near rivers, roads and the bench lives in 64 m tiles, built the first time something
+# asks about that ground (see _fi). Away from them the land is the plain base formula.
+const TILE_M := 64.0
+const TP := 33                 # points per tile side (2 m apart, edges shared)
+const FD := 0                  # distance to the nearest river centerline
+const FWL := 1                 # water level of that river
+const FHW := 2                 # its half width
+const FBEND := 3               # how hard it bends here (signed)
+const FRICH := 4               # its richness (negative for a dry wash)
+const FROAD := 5
+const FROADH := 6
+const FBENCH := 7
+const FBENCHH := 8
+const FIELDS := 9
+
+var _tiles := {}               # Vector2i -> Array of FIELDS PackedFloat32Array
+var _tile_mutex := Mutex.new()
+var _river_index := {}         # tile -> Array of Vector2i(river, segment) that reach it
+var _band_index := {}          # tile -> Array of Vector2i(band, segment) that reach it
+var _bands: Array = []         # [path, heights, inner, outer, is_road]
+var _cnear := PackedByteArray()   # coarse grid: 1 where rivers or bands change the land
+var _empty_tile: Array = []
+var tiles_built := 0
 
 var _rhills := PackedFloat32Array()   # region settings on the coarse grid
 var _rridges := PackedFloat32Array()
@@ -93,7 +106,6 @@ func generate() -> void:
 	progress_frac = 0.15
 	_region_fields()
 	progress_frac = 0.18
-	_base_field()
 	progress_frac = 0.45
 	progress = "Carving the creeks"
 	_stamp_rivers()
@@ -110,17 +122,17 @@ func generate() -> void:
 func surface(x: float, z: float, roads_on: bool = true) -> float:
 	var h := _base_at(x, z)
 	var f := _fi(x, z)
-	var d := _bl(f_d, f)
+	var d := _bl(f, FD)
 	if d < R_FINE:
-		var floor_h := _profile(d, _bl(f_hw, f), _bl(f_wl, f), _bl(f_bend, f))
+		var floor_h := _profile(d, _bl(f, FHW), _bl(f, FWL), _bl(f, FBEND))
 		h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
-	var bw := _bl(f_bench, f)
+	var bw := _bl(f, FBENCH)
 	if bw > 0.001:
-		h = lerpf(h, _bl(f_bench_h, f), bw)
+		h = lerpf(h, _bl(f, FBENCHH), bw)
 	if roads_on:
-		var rw := _bl(f_road, f)
+		var rw := _bl(f, FROAD)
 		if rw > 0.001:
-			h = lerpf(h, _bl(f_road_h, f), rw)
+			h = lerpf(h, _bl(f, FROADH), rw)
 	return _apply_pads(x, z, h)
 
 
@@ -129,28 +141,28 @@ func surface(x: float, z: float, roads_on: bool = true) -> float:
 func sample(x: float, z: float) -> Vector4:
 	var h := _base_at(x, z)
 	var f := _fi(x, z)
-	var d := _bl(f_d, f)
+	var d := _bl(f, FD)
 	var look := 0.0
 	var wl := NO_WATER
 	var gdepth := 0.6
 	if d < R_FINE:
-		var hw := _bl(f_hw, f)
-		var bend := _bl(f_bend, f)
-		var wlv := _bl(f_wl, f)
+		var hw := _bl(f, FHW)
+		var bend := _bl(f, FBEND)
+		var wlv := _bl(f, FWL)
 		var floor_h := _profile(d, hw, wlv, bend)
 		h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
-		wl = wlv if _bl(f_rich, f) >= 0.0 else NO_WATER
+		wl = wlv if _bl(f, FRICH) >= 0.0 else NO_WATER
 		var e := d - hw
 		var inside := maxf(0.0, bend)
 		look = 1.0 if e < 0.0 else 1.0 - smoothstep(0.4 + 4.0 * inside, 1.5 + 8.0 * inside, e)
 		gdepth = _gravel_depth(e, inside, maxf(0.0, -bend))
-	var bw := _bl(f_bench, f)
+	var bw := _bl(f, FBENCH)
 	if bw > 0.001:
-		h = lerpf(h, _bl(f_bench_h, f), bw)
+		h = lerpf(h, _bl(f, FBENCHH), bw)
 		gdepth = lerpf(gdepth, 1.1, bw)
-	var rw := _bl(f_road, f)
+	var rw := _bl(f, FROAD)
 	if rw > 0.001:
-		h = lerpf(h, _bl(f_road_h, f), rw)
+		h = lerpf(h, _bl(f, FROADH), rw)
 		look = maxf(look, smoothstep(0.3, 0.8, rw))
 	return Vector4(_apply_pads(x, z, h), look, wl, gdepth)
 
@@ -159,34 +171,34 @@ func sample(x: float, z: float) -> Vector4:
 ## e = distance beyond the water's edge (negative in the channel), 1e6 when far from any river.
 func river_info(x: float, z: float) -> Vector4:
 	var f := _fi(x, z)
-	var d := _bl(f_d, f)
+	var d := _bl(f, FD)
 	if d >= R_FINE:
 		return Vector4(1.0e6, 0.0, 0.0, 0.0)
-	var bend := _bl(f_bend, f)
-	return Vector4(d - _bl(f_hw, f), maxf(0.0, bend), maxf(0.0, -bend), absf(_bl(f_rich, f)))
+	var bend := _bl(f, FBEND)
+	return Vector4(d - _bl(f, FHW), maxf(0.0, bend), maxf(0.0, -bend), absf(_bl(f, FRICH)))
 
 
 func water_level(x: float, z: float) -> float:
 	var f := _fi(x, z)
-	if _bl(f_d, f) >= R_FINE or _bl(f_rich, f) < 0.0:
+	if _bl(f, FD) >= R_FINE or _bl(f, FRICH) < 0.0:
 		return NO_WATER
-	return _bl(f_wl, f)
+	return _bl(f, FWL)
 
 
 ## Downstream direction of the nearest river (x, z).
 func flow_dir(x: float, z: float) -> Vector2:
-	var gx := _bl(f_wl, _fi(x + 2.0, z)) - _bl(f_wl, _fi(x - 2.0, z))
-	var gz := _bl(f_wl, _fi(x, z + 2.0)) - _bl(f_wl, _fi(x, z - 2.0))
+	var gx := _bl(_fi(x + 2.0, z), FWL) - _bl(_fi(x - 2.0, z), FWL)
+	var gz := _bl(_fi(x, z + 2.0), FWL) - _bl(_fi(x, z - 2.0), FWL)
 	var g := Vector2(-gx, -gz)
 	return g.normalized() if g.length() > 1e-5 else Vector2(1, 0)
 
 
 func road_weight(x: float, z: float) -> float:
-	return _bl(f_road, _fi(x, z))
+	return _bl(_fi(x, z), FROAD)
 
 
 func bench_weight(x: float, z: float) -> float:
-	return _bl(f_bench, _fi(x, z))
+	return _bl(_fi(x, z), FBENCH)
 
 
 func forest(x: float, z: float) -> float:
@@ -265,13 +277,24 @@ func river_point(river_name: String, t: float, frac: float) -> Vector2:
 
 ## A top-down picture of the world for the map: relief shading, contours, rivers, roads, forest.
 func make_map_image(px: int) -> Image:
+	# Built from the coarse data only, so drawing the map never forces detail tiles to exist.
 	var img := Image.create_empty(px, px, false, Image.FORMAT_RGB8)
 	var cell := SIZE / px
 	var hs := PackedFloat32Array()
 	hs.resize(px * px)
+	var ds := PackedFloat32Array()
+	ds.resize(px * px)
 	for j in px:
 		for i in px:
-			hs[j * px + i] = surface((i + 0.5) * cell, (j + 0.5) * cell)
+			var x := (i + 0.5) * cell
+			var z := (j + 0.5) * cell
+			var d := _coarse_at(_cd, x, z)
+			var h := _base_at(x, z)
+			if d < R_FINE:
+				var floor_h := _profile(d, _coarse_at(_chw, x, z), _coarse_at(_cwl, x, z), 0.0)
+				h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
+			hs[j * px + i] = _apply_pads(x, z, h)
+			ds[j * px + i] = d - _coarse_at(_chw, x, z)
 	var light := Vector3(-0.6, 0.75, -0.45).normalized()
 	for j in px:
 		for i in px:
@@ -284,20 +307,31 @@ func make_map_image(px: int) -> Image:
 			var n := Vector3(-(hr - h) / cell, 1.0, -(hd - h) / cell).normalized()
 			var shade := clampf(0.55 + 0.6 * n.dot(light), 0.45, 1.15)
 			var c := _height_color(h)
-			var f := _fi(x, z)
-			var d := _bl(f_d, f)
-			if forest(x, z) > 0.55 and d > R_FINE * 0.5:
+			if forest(x, z) > 0.55 and ds[k] > R_FINE * 0.5:
 				c = c.lerp(Color(0.32, 0.43, 0.29), 0.5)
 			c = c * shade
 			if floori(h / 10.0) != floori(hr / 10.0) or floori(h / 10.0) != floori(hd / 10.0):
 				c = c.darkened(0.22)
-			if _bl(f_road, f) > 0.55:
-				c = Color(0.8, 0.7, 0.5)
-			if d < _bl(f_hw, f) + 1.0:
-				c = Color(0.3, 0.48, 0.62)
 			c.a = 1.0
 			img.set_pixel(i, j, c)
+	# Roads, then water (dry washes as gravel), drawn along their lines.
+	for road in roads:
+		_draw_line(img, road["pts"], cell, Color(0.8, 0.7, 0.5), 1)
+	for r in rivers:
+		var col := Color(0.62, 0.58, 0.5) if r.get("dry", false) else Color(0.3, 0.48, 0.62)
+		_draw_line(img, r["pts"], cell, col, 1 if not r["main"] else 2)
 	return img
+
+
+func _draw_line(img: Image, pts: PackedVector2Array, cell: float, col: Color, width: int) -> void:
+	var px := img.get_width()
+	for p in pts:
+		var ci := int(p.x / cell)
+		var cj := int(p.y / cell)
+		for dj in range(-width + 1, width):
+			for di in range(-width + 1, width):
+				if ci + di >= 0 and cj + dj >= 0 and ci + di < px and cj + dj < px:
+					img.set_pixel(ci + di, cj + dj, col)
 
 
 func _height_color(h: float) -> Color:
@@ -314,28 +348,101 @@ func _height_color(h: float) -> Color:
 
 # --- Field helpers ---------------------------------------------------------------------
 
-func _fi(x: float, z: float) -> Vector3:
-	var fx := clampf(x / FINE, 0.0, FG - 1.001)
-	var fz := clampf(z / FINE, 0.0, FG - 1.001)
+## Where a point sits in its detail tile: [tile fields, Vector3(index, fx, fz)].
+## Ground nothing has changed gets a shared empty tile, so most of the world needs none.
+func _fi(x: float, z: float) -> Array:
+	if not _near(x, z):
+		return [_empty_tile, Vector3.ZERO]
+	var key := Vector2i(clampi(floori(x / TILE_M), 0, int(SIZE / TILE_M) - 1), clampi(floori(z / TILE_M), 0, int(SIZE / TILE_M) - 1))
+	_tile_mutex.lock()
+	var t = _tiles.get(key)
+	_tile_mutex.unlock()
+	if t == null:
+		var built := _build_tile(key)
+		_tile_mutex.lock()
+		t = _tiles.get(key)
+		if t == null:
+			_tiles[key] = built
+			tiles_built += 1
+			t = built
+		_tile_mutex.unlock()
+	var fx := clampf((x - key.x * TILE_M) / FINE, 0.0, TP - 1.001)
+	var fz := clampf((z - key.y * TILE_M) / FINE, 0.0, TP - 1.001)
 	var i := int(fx)
 	var j := int(fz)
-	return Vector3(j * FG + i, fx - i, fz - j)
+	return [t, Vector3(j * TP + i, fx - i, fz - j)]
 
 
-func _bl(a: PackedFloat32Array, f: Vector3) -> float:
+func _bl(t: Array, field: int) -> float:
+	var a: PackedFloat32Array = t[0][field]
+	var f: Vector3 = t[1]
 	var k := int(f.x)
-	return lerpf(lerpf(a[k], a[k + 1], f.y), lerpf(a[k + FG], a[k + FG + 1], f.y), f.z)
+	return lerpf(lerpf(a[k], a[k + 1], f.y), lerpf(a[k + TP], a[k + TP + 1], f.y), f.z)
 
 
+## Ground height from the coarse data only: no detail tiles needed. Close to surface() away
+## from roads and the bench, and within a little of it on river banks.
+func coarse_surface(x: float, z: float) -> float:
+	var h := _base_at(x, z)
+	var d := _coarse_at(_cd, x, z)
+	if d < R_FINE:
+		var floor_h := _profile(d, _coarse_at(_chw, x, z), _coarse_at(_cwl, x, z), 0.0)
+		h = lerpf(floor_h, maxf(h, floor_h), smoothstep(R_FINE * 0.45, R_FINE * 0.95, d))
+	return _apply_pads(x, z, h)
+
+
+## sample() from the coarse data, for distant terrain: no detail tiles, no roads.
+func coarse_sample(x: float, z: float) -> Vector4:
+	var d := _coarse_at(_cd, x, z)
+	var hw := _coarse_at(_chw, x, z)
+	var look := 1.0 - smoothstep(0.5, 2.5, d - hw)
+	var wl := NO_WATER
+	if d < R_FINE and not _dry_near(x, z):
+		wl = _coarse_at(_cwl, x, z)
+	return Vector4(coarse_surface(x, z), look, wl, 0.6)
+
+
+func _dry_near(x: float, z: float) -> bool:
+	var i := clampi(roundi(x / COARSE), 0, CG - 1)
+	var j := clampi(roundi(z / COARSE), 0, CG - 1)
+	return (_cnear[j * CG + i] & 4) != 0
+
+
+## Distance from a river's edge, from the coarse data (negative in the water).
+func coarse_river_edge(x: float, z: float) -> float:
+	return _coarse_at(_cd, x, z) - _coarse_at(_chw, x, z)
+
+
+## True near a road or the bench (coarse).
+func near_band(x: float, z: float) -> bool:
+	if _cnear.is_empty():
+		return false
+	var i := clampi(roundi(x / COARSE), 0, CG - 1)
+	var j := clampi(roundi(z / COARSE), 0, CG - 1)
+	return (_cnear[j * CG + i] & 2) != 0
+
+
+## True where a river or a band (road, bench) is close enough to change the land.
+func _near(x: float, z: float) -> bool:
+	if _cnear.is_empty():
+		return false
+	var i := clampi(roundi(x / COARSE), 0, CG - 1)
+	var j := clampi(roundi(z / COARSE), 0, CG - 1)
+	return _cnear[j * CG + i] != 0
+
+
+## The land before rivers, roads and pads: valleys rising away from the water into hills.
 func _base_at(x: float, z: float) -> float:
-	var bx := clampf(x / BASE, 0.0, BG - 1.001)
-	var bz := clampf(z / BASE, 0.0, BG - 1.001)
-	var i := int(bx)
-	var j := int(bz)
-	var tx := bx - i
-	var tz := bz - j
-	var k := j * BG + i
-	return lerpf(lerpf(f_base[k], f_base[k + 1], tx), lerpf(f_base[k + BG], f_base[k + BG + 1], tx), tz)
+	var d := _coarse_at(_cd, x, z)
+	var wl := _coarse_at(_cwl, x, z)
+	var hw := _coarse_at(_chw, x, z)
+	var dp := maxf(0.0, d - (14.0 + 5.0 * hw))
+	var rise := 60.0 * (1.0 - exp(-dp / 200.0)) + 0.1 * dp
+	var hills := _region_at(_rhills, x, z)
+	var ridges := _region_at(_rridges, x, z)
+	var amp := minf(1.5 + 0.22 * dp, 80.0) * hills
+	var ridge := minf(0.12 * dp, 50.0) * ridges * (_ridges.get_noise_2d(x, z) * 0.5 + 0.5)
+	return wl + 1.4 + rise * lerpf(1.0, hills, 0.6) + _hills.get_noise_2d(x, z) * amp + ridge
 
 
 func _coarse_at(a: PackedFloat32Array, x: float, z: float) -> float:
@@ -598,77 +705,132 @@ func _region_fields() -> void:
 			_rbare[k] = bv
 
 
-func _base_field() -> void:
-	f_base.resize(BG * BG)
-	for j in BG:
-		if j % 32 == 0:
-			progress_frac = lerpf(0.18, 0.45, float(j) / BG)
-		for i in BG:
-			var x := i * BASE
-			var z := j * BASE
-			var d := _coarse_at(_cd, x, z)
-			var wl := _coarse_at(_cwl, x, z)
-			var hw := _coarse_at(_chw, x, z)
-			var dp := maxf(0.0, d - (14.0 + 5.0 * hw))
-			var rise := 60.0 * (1.0 - exp(-dp / 200.0)) + 0.1 * dp
-			var hills := _region_at(_rhills, x, z)
-			var ridges := _region_at(_rridges, x, z)
-			var amp := minf(1.5 + 0.22 * dp, 80.0) * hills
-			var ridge := minf(0.12 * dp, 50.0) * ridges * (_ridges.get_noise_2d(x, z) * 0.5 + 0.5)
-			f_base[j * BG + i] = wl + 1.4 + rise * lerpf(1.0, hills, 0.6) + _hills.get_noise_2d(x, z) * amp + ridge
+
 
 
 ## Exact distance, water level, width and bend for every fine cell near a river.
+## Note which river segments reach each tile, and mark the coarse cells they change.
 func _stamp_rivers() -> void:
-	var total := FG * FG
-	f_d.resize(total)
-	f_wl.resize(total)
-	f_hw.resize(total)
-	f_bend.resize(total)
-	f_rich.resize(total)
-	f_d.fill(R_STAMP)
-	f_bend.fill(0.0)
-	f_rich.fill(0.0)
+	_cnear.resize(CG * CG)
+	_cnear.fill(0)
+	var e := []
+	for f in FIELDS:
+		var a := PackedFloat32Array()
+		a.resize(TP * TP)
+		a.fill(R_STAMP if f == FD else 0.0)
+		e.append(a)
+	_empty_tile = e
 	for ri in rivers.size():
 		progress_frac = lerpf(0.45, 0.72, float(ri) / rivers.size())
-		var r: Dictionary = rivers[ri]
+		var pts: PackedVector2Array = rivers[ri]["pts"]
+		for sgi in pts.size() - 1:
+			_index_segment(_river_index, Vector2i(ri, sgi), pts[sgi], pts[sgi + 1], R_STAMP, 5 if rivers[ri].get("dry", false) else 1)
+
+
+func _index_segment(index: Dictionary, entry: Vector2i, a: Vector2, b: Vector2, reach: float, bit: int = 1) -> void:
+	var lo := Vector2(minf(a.x, b.x), minf(a.y, b.y)) - Vector2(reach, reach)
+	var hi := Vector2(maxf(a.x, b.x), maxf(a.y, b.y)) + Vector2(reach, reach)
+	var nt := int(SIZE / TILE_M)
+	for tj in range(maxi(0, floori(lo.y / TILE_M)), mini(nt - 1, floori(hi.y / TILE_M)) + 1):
+		for ti in range(maxi(0, floori(lo.x / TILE_M)), mini(nt - 1, floori(hi.x / TILE_M)) + 1):
+			var key := Vector2i(ti, tj)
+			if not index.has(key):
+				index[key] = []
+			(index[key] as Array).append(entry)
+	for cj in range(maxi(0, floori(lo.y / COARSE) - 1), mini(CG - 1, ceili(hi.y / COARSE) + 1) + 1):
+		for ci in range(maxi(0, floori(lo.x / COARSE) - 1), mini(CG - 1, ceili(hi.x / COARSE) + 1) + 1):
+			_cnear[cj * CG + ci] |= bit
+
+
+## Fill one detail tile: river distance, level, width, bend and richness, then roads and bench.
+func _build_tile(key: Vector2i) -> Array:
+	var x0 := key.x * TILE_M
+	var z0 := key.y * TILE_M
+	var t := []
+	for f in FIELDS:
+		var a := PackedFloat32Array()
+		a.resize(TP * TP)
+		a.fill(R_STAMP if f == FD else 0.0)
+		t.append(a)
+	var fd: PackedFloat32Array = t[FD]
+	var fwl: PackedFloat32Array = t[FWL]
+	var fhw: PackedFloat32Array = t[FHW]
+	var fbend: PackedFloat32Array = t[FBEND]
+	var frich: PackedFloat32Array = t[FRICH]
+	for entry: Vector2i in _river_index.get(key, []):
+		var r: Dictionary = rivers[entry.x]
 		var pts: PackedVector2Array = r["pts"]
 		var wl: PackedFloat32Array = r["wl"]
 		var hw: PackedFloat32Array = r["hw"]
 		var curv: PackedFloat32Array = r["curv"]
 		# A dry wash stores its richness negative: same channel and gold, but no water.
 		var rich: float = -float(r["rich"]) if r.get("dry", false) else float(r["rich"])
-		for s in pts.size() - 1:
-			var a := pts[s]
-			var ab := pts[s + 1] - a
-			var len2 := maxf(ab.length_squared(), 1e-6)
-			var i0 := maxi(0, floori((minf(a.x, a.x + ab.x) - R_STAMP) / FINE))
-			var i1 := mini(FG - 1, ceili((maxf(a.x, a.x + ab.x) + R_STAMP) / FINE))
-			var j0 := maxi(0, floori((minf(a.y, a.y + ab.y) - R_STAMP) / FINE))
-			var j1 := mini(FG - 1, ceili((maxf(a.y, a.y + ab.y) + R_STAMP) / FINE))
-			for j in range(j0, j1 + 1):
-				var pz := j * FINE
-				for i in range(i0, i1 + 1):
-					var px := i * FINE
-					var t := clampf(((px - a.x) * ab.x + (pz - a.y) * ab.y) / len2, 0.0, 1.0)
-					var qx := a.x + ab.x * t
-					var qz := a.y + ab.y * t
-					var d := sqrt((px - qx) * (px - qx) + (pz - qz) * (pz - qz))
-					var k := j * FG + i
-					if d < f_d[k]:
-						f_d[k] = d
-						f_wl[k] = lerpf(wl[s], wl[s + 1], t)
-						f_hw[k] = lerpf(hw[s], hw[s + 1], t)
-						var side := signf(ab.x * (pz - a.y) - ab.y * (px - a.x))
-						f_bend[k] = clampf(lerpf(curv[s], curv[s + 1], t) / MAX_BEND, -1.0, 1.0) * side
-						f_rich[k] = rich
-	# Cells no river reached get the coarse level and width, so blending near the edge stays sane.
-	for j in FG:
-		for i in FG:
-			var k := j * FG + i
-			if f_d[k] >= R_STAMP:
-				f_wl[k] = _coarse_at(_cwl, i * FINE, j * FINE)
-				f_hw[k] = _coarse_at(_chw, i * FINE, j * FINE)
+		var sg := entry.y
+		var a := pts[sg]
+		var ab := pts[sg + 1] - a
+		var len2 := maxf(ab.length_squared(), 1e-6)
+		var i0 := maxi(0, floori((minf(a.x, a.x + ab.x) - R_STAMP - x0) / FINE))
+		var i1 := mini(TP - 1, ceili((maxf(a.x, a.x + ab.x) + R_STAMP - x0) / FINE))
+		var j0 := maxi(0, floori((minf(a.y, a.y + ab.y) - R_STAMP - z0) / FINE))
+		var j1 := mini(TP - 1, ceili((maxf(a.y, a.y + ab.y) + R_STAMP - z0) / FINE))
+		for j in range(j0, j1 + 1):
+			var pz := z0 + j * FINE
+			for i in range(i0, i1 + 1):
+				var px := x0 + i * FINE
+				var tt := clampf(((px - a.x) * ab.x + (pz - a.y) * ab.y) / len2, 0.0, 1.0)
+				var qx := a.x + ab.x * tt
+				var qz := a.y + ab.y * tt
+				var d := sqrt((px - qx) * (px - qx) + (pz - qz) * (pz - qz))
+				var k := j * TP + i
+				if d < fd[k]:
+					fd[k] = d
+					fwl[k] = lerpf(wl[sg], wl[sg + 1], tt)
+					fhw[k] = lerpf(hw[sg], hw[sg + 1], tt)
+					var side := signf(ab.x * (pz - a.y) - ab.y * (px - a.x))
+					fbend[k] = clampf(lerpf(curv[sg], curv[sg + 1], tt) / MAX_BEND, -1.0, 1.0) * side
+					frich[k] = rich
+	# Points no river reached get the coarse level and width, so blending near the edge stays sane.
+	for j in TP:
+		for i in TP:
+			var k := j * TP + i
+			if fd[k] >= R_STAMP:
+				fwl[k] = _coarse_at(_cwl, x0 + i * FINE, z0 + j * FINE)
+				fhw[k] = _coarse_at(_chw, x0 + i * FINE, z0 + j * FINE)
+	for entry: Vector2i in _band_index.get(key, []):
+		_stamp_band_tile(t, x0, z0, _bands[entry.x], entry.y)
+	return t
+
+
+func _stamp_band_tile(t: Array, x0: float, z0: float, band: Array, sg: int) -> void:
+	var path: PackedVector2Array = band[0]
+	var hs: PackedFloat32Array = band[1]
+	var inner: float = band[2]
+	var outer: float = band[3]
+	var f_w: PackedFloat32Array = t[FROAD if band[4] else FBENCH]
+	var f_h: PackedFloat32Array = t[FROADH if band[4] else FBENCHH]
+	var a := path[sg]
+	var ab := path[sg + 1] - a
+	var len2 := maxf(ab.length_squared(), 1e-6)
+	# Heights are also written just outside the band (weight 0), because heights and
+	# weights are interpolated separately: a blank height next to the band would drag
+	# the blended ground toward zero and punch pits along the edge.
+	var reach := outer + FINE * 3.0
+	var i0 := maxi(0, floori((minf(a.x, a.x + ab.x) - reach - x0) / FINE))
+	var i1 := mini(TP - 1, ceili((maxf(a.x, a.x + ab.x) + reach - x0) / FINE))
+	var j0 := maxi(0, floori((minf(a.y, a.y + ab.y) - reach - z0) / FINE))
+	var j1 := mini(TP - 1, ceili((maxf(a.y, a.y + ab.y) + reach - z0) / FINE))
+	for j in range(j0, j1 + 1):
+		var pz := z0 + j * FINE
+		for i in range(i0, i1 + 1):
+			var px := x0 + i * FINE
+			var tt := clampf(((px - a.x) * ab.x + (pz - a.y) * ab.y) / len2, 0.0, 1.0)
+			var dx := px - (a.x + ab.x * tt)
+			var dz := pz - (a.y + ab.y * tt)
+			var w := 1.0 - smoothstep(inner, outer, sqrt(dx * dx + dz * dz))
+			var k := j * TP + i
+			if w > f_w[k] or (f_w[k] <= 0.0 and f_h[k] == 0.0):
+				f_w[k] = w
+				f_h[k] = lerpf(hs[sg], hs[sg + 1], tt)
 
 
 func _make_sites_and_roads() -> void:
@@ -677,15 +839,6 @@ func _make_sites_and_roads() -> void:
 	sites["mine"] = _site_beside("Rattlesnake Gulch", 0.55, -1.0, 52.0)
 	# The town sits on the valley road, east of where Cabin Creek comes in.
 	sites["town"] = _site_beside("Big Sable River", 0.51, 1.0, 66.0)
-	var total := FG * FG
-	f_bench.resize(total)
-	f_bench_h.resize(total)
-	f_road.resize(total)
-	f_road_h.resize(total)
-	f_bench.fill(0.0)
-	f_bench_h.fill(0.0)
-	f_road.fill(0.0)
-	f_road_h.fill(0.0)
 	# The old bench: an ancient channel 50 m up the cabin side of Cabin Creek.
 	var cabin := river_by_name("Cabin Creek")
 	var bench := _offset_path(cabin, 0.16, 0.42, 50.0)
@@ -819,36 +972,13 @@ func _smooth_values(v: PackedFloat32Array, win: int) -> PackedFloat32Array:
 
 ## Stamp a band along a path into the road or bench fields (the strongest weight wins).
 ## (Packed arrays are copied when passed, so this picks its target fields by name.)
+## Register a road or bench band; tiles stamp it when they are built.
 func _stamp_band(path: PackedVector2Array, hs: PackedFloat32Array, inner: float, outer: float, target: String) -> void:
-	var f_w: PackedFloat32Array = f_road if target == "road" else f_bench
-	var f_h: PackedFloat32Array = f_road_h if target == "road" else f_bench_h
-	for s in path.size() - 1:
-		var a := path[s]
-		var ab := path[s + 1] - a
-		var len2 := maxf(ab.length_squared(), 1e-6)
-		# Heights are also written just outside the band (weight 0), because heights and
-		# weights are interpolated separately: a blank height next to the band would drag
-		# the blended ground toward zero and punch pits along the edge.
-		var reach := outer + FINE * 3.0
-		var i0 := maxi(0, floori((minf(a.x, a.x + ab.x) - reach) / FINE))
-		var i1 := mini(FG - 1, ceili((maxf(a.x, a.x + ab.x) + reach) / FINE))
-		var j0 := maxi(0, floori((minf(a.y, a.y + ab.y) - reach) / FINE))
-		var j1 := mini(FG - 1, ceili((maxf(a.y, a.y + ab.y) + reach) / FINE))
-		for j in range(j0, j1 + 1):
-			var pz := j * FINE
-			for i in range(i0, i1 + 1):
-				var px := i * FINE
-				var t := clampf(((px - a.x) * ab.x + (pz - a.y) * ab.y) / len2, 0.0, 1.0)
-				var dx := px - (a.x + ab.x * t)
-				var dz := pz - (a.y + ab.y * t)
-				var w := 1.0 - smoothstep(inner, outer, sqrt(dx * dx + dz * dz))
-				var k := j * FG + i
-				if w > f_w[k] or (f_w[k] <= 0.0 and f_h[k] == 0.0):
-					f_w[k] = w
-					f_h[k] = lerpf(hs[s], hs[s + 1], t)
-	if target == "road":
-		f_road = f_w
-		f_road_h = f_h
-	else:
-		f_bench = f_w
-		f_bench_h = f_h
+	var id := _bands.size()
+	_bands.append([path, hs, inner, outer, target == "road"])
+	for sg in path.size() - 1:
+		_index_segment(_band_index, Vector2i(id, sg), path[sg], path[sg + 1], outer + FINE * 3.0, 2)
+	# Tiles built so far (while working out road heights) lack this band: start them over.
+	_tile_mutex.lock()
+	_tiles.clear()
+	_tile_mutex.unlock()
