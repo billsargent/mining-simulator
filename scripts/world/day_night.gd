@@ -13,6 +13,7 @@ const NIGHT_HORIZON := Color(0.1, 0.13, 0.21)
 var hours := 8.0
 var day := 1
 var underground := false
+var storm := 0.0                 # 0..1, set by weather.gd: grey sky, dim sun, thicker haze
 var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var sun: DirectionalLight3D
@@ -84,6 +85,10 @@ func apply() -> void:
 		var t := smoothstep(0.0, 10.0, -elev)
 		top = DUSK_TOP.lerp(NIGHT_TOP, t)
 		horizon = DUSK_HORIZON.lerp(NIGHT_HORIZON, t)
+	var grey := Color(0.38, 0.4, 0.43) * lerpf(0.25, 1.0, day_f)
+	top = top.lerp(grey * 0.85, storm * 0.85)
+	horizon = horizon.lerp(grey, storm * 0.8)
+	sun.light_energy *= 1.0 - 0.7 * storm
 	sky_mat.sky_top_color = top
 	sky_mat.sky_horizon_color = horizon
 	sky_mat.ground_horizon_color = horizon * 0.85
@@ -107,4 +112,4 @@ func apply() -> void:
 		env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 		env.fog_aerial_perspective = 0.55
 		env.fog_sky_affect = 0.25
-		env.fog_density = 0.0016
+		env.fog_density = 0.0016 + 0.004 * storm

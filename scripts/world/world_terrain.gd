@@ -235,6 +235,34 @@ func _node_overlaps(key: Vector3i, cx: float, cz: float, r: float) -> bool:
 	return not (cx + r < x0 or cx - r > x0 + size or cz + r < z0 or cz - r > z0 + size)
 
 
+## A flood: every dug spot within reach of the water (bars, banks, the channel) is filled
+## back in with fresh gravel. Returns how many dig cells were refilled.
+func flood(reach: float = 3.0) -> int:
+	var filled := 0
+	for t: Vector2i in _dig_h.keys():
+		var h: PackedFloat32Array = _dig_h[t]
+		var m: PackedFloat32Array = _dig_m[t]
+		var changed := false
+		for j in DN + 1:
+			for i in DN + 1:
+				var k := j * (DN + 1) + i
+				if h[k] >= 0.0 and m[k] <= 0.0:
+					continue
+				var x := (t.x * DN + i) * CELL
+				var z := (t.y * DN + j) * CELL
+				if world.river_info(x, z).x < reach:
+					h[k] = 0.0
+					m[k] = 0.0
+					changed = true
+					filled += 1
+		if changed:
+			_dig_h[t] = h
+			_dig_m[t] = m
+			var c := (Vector2(t) + Vector2(0.5, 0.5)) * DIG_TILE
+			_after_dig(c.x, c.y, DIG_TILE * 0.75)
+	return filled
+
+
 ## For saving: only the dug tiles.
 func dig_data() -> Dictionary:
 	return {"h": _dig_h, "m": _dig_m}

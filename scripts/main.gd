@@ -42,6 +42,7 @@ const Truck = preload("res://scripts/vehicles/truck.gd")
 const Trailer = preload("res://scripts/vehicles/trailer.gd")
 const Camp = preload("res://scripts/base/camp.gd")
 const Travel = preload("res://scripts/core/travel.gd")
+const Weather = preload("res://scripts/world/weather.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
@@ -63,6 +64,7 @@ var terrain: WorldTerrain
 var scatter: Scatter
 var base: HomeBase
 var town: Town
+var weather: Weather
 var player: Player
 var hud: Hud
 var menu: PauseMenu
@@ -131,6 +133,9 @@ func _ready() -> void:
 	var landmarks := Landmarks.new()
 	add_child(landmarks)
 	landmarks.build(terrain, world.sites)
+	weather = Weather.new()
+	add_child(weather)
+	weather.setup(day_night)
 	town = Town.new()
 	add_child(town)
 	town.build(terrain, world.sites["town"])
@@ -339,6 +344,15 @@ func fast_travel(dest: Vector3, place: String) -> void:
 	hud.blackout(1.5)
 	hud.toast("You travel to %s. %s later.%s" % [place, Travel._hours_text(hours).replace("min", "minutes"),
 		(" The %s came along." % str(bring.display_name).to_lower()) if bring != null else ""], Color(1.0, 0.9, 0.6), 5.0)
+
+
+## A storm has passed: the creeks ran high and refilled the holes on the bars and banks.
+func flood() -> void:
+	var n := terrain.flood()
+	if n > 0:
+		hud.toast("The creeks ran high in the storm. Fresh gravel has washed back onto the bars you worked.", Color(0.75, 0.85, 1.0), 7.0)
+	else:
+		hud.toast("The creeks ran high in the storm and dropped fresh gravel on the bars.", Color(0.75, 0.85, 1.0), 6.0)
 
 
 func sleep() -> void:
@@ -625,7 +639,7 @@ func _collect_save() -> Dictionary:
 		"machines": machines,
 		"vehicles": vdata,
 		"furnace": base.furnace.to_dict(),
-		"time": {"hours": day_night.hours, "day": day_night.day},
+		"time": {"hours": day_night.hours, "day": day_night.day, "weather_checked": weather.checked},
 		"map": map_view.save_state(),
 	}
 
@@ -657,6 +671,7 @@ func _load_game() -> bool:
 	var time: Dictionary = data.get("time", {})
 	day_night.hours = time.get("hours", 8.0)
 	day_night.day = time.get("day", 1)
+	weather.checked = time.get("weather_checked", -1.0)
 	map_view.load_state(data.get("map", {}))
 	var p: Dictionary = data.get("player", {})
 	player.global_position = p.get("pos", base.spawn_point)
@@ -710,6 +725,13 @@ func _run_harness() -> void:
 	if _opts.has("time"):
 		day_night.hours = float(_opts["time"])
 		day_night.apply()
+	if _opts.has("storm"):
+		var sd := 2
+		while not Weather.storm_day(sd):
+			sd += 1
+		day_night.day = sd
+		day_night.hours = 16.0
+		weather.checked = weather.now()
 	if _opts.has("demo"):
 		_demo_setup()
 	_apply_view()
@@ -1439,6 +1461,41 @@ func _selftest() -> void:
 	tent.scroll(player, -1)
 	tent.interact(player)
 	_check("and back to the cabin from the tent", player.global_position.distance_to(base.spawn_point) < 3.0)
+
+	# Storms and floods: dig a bar to bedrock, let a storm pass, and the hole fills with fresh gravel.
+	var sd := 2
+	while not Weather.storm_day(sd):
+		sd += 1
+	var bar := _v3(world.river_point("Cabin Creek", 0.58, 1.25))
+	var undug := terrain.height_at(bar.x, bar.z)
+	for i in 12:
+		terrain.dig(bar, Player.DIG_DEPTH, Player.DIG_RADIUS)
+	var dug_h := terrain.height_at(bar.x, bar.z)
+	var farhole := _v3(world.river_point("Cabin Creek", 0.58, 8.0))
+	for i in 3:
+		terrain.dig(farhole, Player.DIG_DEPTH, Player.DIG_RADIUS)
+	var far_dug := terrain.height_at(farhole.x, farhole.z)
+	day_night.day = sd
+	day_night.hours = 15.5
+	weather.checked = weather.now()
+	for i in 3:
+		await get_tree().process_frame
+	_check("storms come every few days, with rain", weather.amount() > 0.9 and day_night.storm > 0.9)
+	day_night.hours = 19.5
+	for i in 3:
+		await get_tree().process_frame
+	var refilled := terrain.height_at(bar.x, bar.z)
+	print("  storm on day %d: bar %.2f m deep before, %.2f m after; a hole up the bank stays %.2f m deep" % [sd, undug - dug_h, undug - refilled,
+		terrain.height_at(farhole.x, farhole.z) - far_dug + (terrain.height_at(farhole.x, farhole.z) - far_dug) * 0.0])
+	_check("a flood refills the holes on the bar", undug - dug_h > 0.3 and absf(refilled - undug) < 0.02)
+	_check("but not holes up the bank", absf(terrain.height_at(farhole.x, farhole.z) - far_dug) < 0.01)
+	var fresh := terrain.dig(bar, Player.DIG_DEPTH, Player.DIG_RADIUS)
+	_check("the refilled bar can be dug again", fresh["removed"] > 0.02)
+	day_night.day = sd + 1
+	day_night.hours = 23.0
+	var floods_while_asleep := weather.storms_between(sd * 24.0 + 10.0, (sd + 1) * 24.0 + 7.0)
+	_check("a storm you sleep through still floods", floods_while_asleep == 1)
+	day_night.hours = 8.0
 
 	# Walk.
 	player.global_position = base.spawn_point
