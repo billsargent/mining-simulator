@@ -9,7 +9,7 @@ const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Tex = preload("res://scripts/util/tex.gd")
 
 const REGION := 128.0
-const RN := 16
+const RN := int(WorldGen.SIZE / REGION)
 const TREE_STEP := 9.0
 const ROCK_BLOCK := 512.0
 const GRASS_CELL := 16.0

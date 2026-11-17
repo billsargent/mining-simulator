@@ -783,8 +783,8 @@ func _place_player(p: Vector3, yaw: float, pitch: float) -> void:
 func _demo_setup() -> void:
 	machine_of("sluice").place_at(_v3(world.river_point("Cabin Creek", 0.6, 0.5)), 0.0)
 	deliver("high_banker")
-	machine_of("pump").place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
-	machine_of("high_banker").place_at(_v3(world.river_point("Cabin Creek", 0.66, 3.4)), PI)
+	machine_of("pump").place_at(_v3(world.river_point("Cabin Creek", 0.57, 1.25)), 0.0)
+	machine_of("high_banker").place_at(_v3(world.river_point("Cabin Creek", 0.585, 3.4)), PI)
 	for kind in ["sluice", "high_banker"]:
 		var m = machine_of(kind)
 		var p := m.global_position as Vector3
@@ -918,9 +918,9 @@ func _selftest() -> void:
 	var hb = machine_of("high_banker")
 	var pump = machine_of("pump")
 	_check("high banker and pump delivered", hb != null and pump != null)
-	pump.place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
+	pump.place_at(_v3(world.river_point("Cabin Creek", 0.57, 1.25)), 0.0)
 	_check("pump reaches water", pump.water_problem() == "")
-	hb.place_at(_v3(world.river_point("Cabin Creek", 0.66, 3.4)), 0.0)
+	hb.place_at(_v3(world.river_point("Cabin Creek", 0.585, 3.4)), 0.0)
 	hb.refresh_pump()
 	_check("high banker hooked to the pump", hb.water_problem() == "")
 	var pumps_ok := true
@@ -930,7 +930,7 @@ func _selftest() -> void:
 			pumps_ok = false
 			print("  pump has no water on %s" % r["name"])
 	_check("the pump works on every river", pumps_ok)
-	pump.place_at(_v3(world.river_point("Cabin Creek", 0.64, 1.25)), 0.0)
+	pump.place_at(_v3(world.river_point("Cabin Creek", 0.57, 1.25)), 0.0)
 
 	# Vehicles.
 	var atv = vehicle_of("atv")

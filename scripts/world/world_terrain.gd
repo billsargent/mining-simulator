@@ -14,11 +14,11 @@ const Tex = preload("res://scripts/util/tex.gd")
 
 const LEAF := 16.0
 const N := 32
-const MAX_LEVEL := 7
+const MAX_LEVEL := 7 + (2 if WorldGen.SIZE > 4096.0 else (1 if WorldGen.SIZE > 2048.0 else 0))   # root node covers the world
 const SPLIT_K := 1.5
 const TILE := 32.0
 const TN := 64
-const TILES := 64
+const TILES := int(WorldGen.SIZE / TILE)
 const TILE_RADIUS := 2
 const CELL := 0.5
 const DIG_TILE := 16.0
@@ -27,7 +27,7 @@ const MICRO := 0.1
 const MAX_TASKS := 32
 
 var world: WorldGen
-var focus := Vector3(1024.0, 0.0, 1024.0)
+var focus := Vector3(WorldGen.SIZE * 0.5, 0.0, WorldGen.SIZE * 0.5)
 
 var _material: ShaderMaterial
 var _micro := FastNoiseLite.new()

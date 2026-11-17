@@ -9,13 +9,14 @@ extends RefCounted
 ##
 ## Pure data with no nodes, so generation and queries are safe on worker threads.
 
-const SIZE := 2048.0
+const SIZE := 8192.0
 const FINE := 2.0            # spacing of the near-river fields (metres)
 const FG := int(SIZE / FINE) + 1   # fine grid points per side
 const BASE := 4.0            # spacing of the base height field
 const BG := int(SIZE / BASE) + 1
 const COARSE := 8.0          # spacing of the distance-to-water skeleton
 const CG := int(SIZE / COARSE) + 1
+const LAYOUT := SIZE / 2048.0   # the river layout was drawn for a 2 km world; scale it to SIZE
 const R_FINE := 30.0         # channel and bank detail out to this distance from a centerline
 const R_STAMP := 34.0
 const MAX_BEND := 0.045
@@ -309,7 +310,7 @@ func _apply_pads(x: float, z: float, h: float) -> float:
 # --- Generation ------------------------------------------------------------------------
 
 func _make_rivers() -> void:
-	var main := _river("Big Sable River", Vector2(-30, 1000), Vector2(SIZE + 30, 1070), 64.0, 44.0, 8.0, 9.5, 0.5, 70.0, 1.0, true)
+	var main := _river("Big Sable River", Vector2(-30, 1000 * LAYOUT), Vector2(SIZE + 30, 1070 * LAYOUT), 64.0, 44.0, 8.0, 9.5, 0.5, 70.0, 1.0, true)
 	rivers.append(main)
 	# name, source, x of the junction on the main river, richness, gradient, meander
 	var creeks := [
@@ -324,12 +325,14 @@ func _make_rivers() -> void:
 	for c in creeks:
 		var best := 0
 		for i in mpts.size():
-			if absf(mpts[i].x - c[2]) < absf(mpts[best].x - c[2]):
+			if absf(mpts[i].x - float(c[2]) * LAYOUT) < absf(mpts[best].x - float(c[2]) * LAYOUT):
 				best = i
 		var mouth := mpts[best]
-		var length: float = (mouth - (c[1] as Vector2)).length()
+		var source: Vector2 = (c[1] as Vector2) * LAYOUT
+		var length: float = (mouth - source).length()
 		var wl_mouth := mwl[best]
-		rivers.append(_river(c[0], c[1], mouth, wl_mouth + float(c[4]) * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false))
+		# Gradients are divided by the scale, so creeks climb as high as they did at 2 km.
+		rivers.append(_river(c[0], source, mouth, wl_mouth + float(c[4]) / LAYOUT * length, wl_mouth, 2.6, 4.6, c[3], c[5], 1.4, false))
 
 
 func _river(n: String, a: Vector2, b: Vector2, wl_a: float, wl_b: float, hw_a: float, hw_b: float,
