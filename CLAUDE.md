@@ -82,3 +82,8 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Camps: `scripts/base/camp.gd` (a machine of kind `camp`, works anywhere, no claim needed) and `scripts/core/travel.gd`. The tent and the cabin bunk offer sleep or travel; `main.fast_travel()` advances time by distance and brings a vehicle within 25 m (and its trailer). Screenshot `--view=tent`.
 - Weather: `scripts/world/weather.gd`. Storm days are fixed by day number (`storm_day`), 2 pm to 7 pm; `day_night.storm` greys the sky. When a storm has ended since `weather.checked` (saved with the time), `main.flood()` calls `terrain.flood()`, which refills dug cells within 3 m of the water. Screenshot with `--storm`.
 - `scripts/machines/trommel.gd` extends the high banker (pump hose, tailings). `scripts/vehicles/excavator.gd`: a vehicle with `action(player)` (left mouse while driving) and `drive_hint()`; it scoops ahead (`DIG_AHEAD`) into the nearest running processing machine within 9 m. Screenshot `--view=trommel`.
+
+## M7 additions
+- Settings (`scripts/core/settings.gd`, `user://settings.cfg`): quality, render scale, full screen, vsync, FOV, mouse sensitivity, invert Y, key bindings. The Esc menu has a Settings page; screenshot it with `--settings`.
+- Rebindable actions are in `Settings.ACTIONS`; don't bind them in `main._setup_input()`. Prompts keep writing the default key (`Hud.key("E")`), and `Settings.prompt_key()` shows the player's actual key. The bottom help line comes from `Settings.help(driving)`.
+- Cameras that follow the FOV setting join the `"fov_camera"` group; mouse look uses `Settings.look_speed()`.
