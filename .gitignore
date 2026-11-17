@@ -2,6 +2,9 @@
 .godot/
 /android/
 
+# Exported builds (Export.bat, CI)
+/build/
+
 # OS clutter
 Thumbs.db
 .DS_Store
