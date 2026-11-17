@@ -16,6 +16,7 @@ const ITEMS = [
 	["sack", "Big ore sack", 200, "holds 20 pieces of ore instead of 10"],
 	["moss", "Miner's moss carpet", 300, "your sluice and high banker hold on to much more of the fine gold"],
 	["detector", "Metal detector", 700, "shows how much gold is in the ground under your feet"],
+	["dredge", "Suction dredge, with permit", 2500, "floats in deeper water and sucks up the river bottom by itself"],
 ]
 const SHOWN := 5
 
@@ -105,6 +106,9 @@ func interact(player) -> void:
 		"crusher":
 			inv.crusher_powered = true
 			said = "A powered rock crusher, set up by the wash tub at your cabin."
+		"dredge":
+			inv.gear["dredge"] = true
+			said = "A suction dredge and a dredging permit. It's waiting by the shed: carry it (F) to deep water on your claim."
 		_:
 			inv.gear[id] = true
 			said = "%s: %s." % [it[1], it[3]]

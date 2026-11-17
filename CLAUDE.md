@@ -68,3 +68,6 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - In bbcode prompts, write literal brackets as `[lb]`/`[rb]` (`Hud.key()` does this).
 - CPUParticles3D ignored vertex colors here; color particles through the material's albedo instead.
 - Cabin interior (`home_base._interior()`): `cabin_door.gd` (hinged, E opens), `bed.gd` (sleep), `storage_chest.gd` (inventory `chest_*` fields; `store_in_chest()` / `take_from_chest()`). Screenshot views `--view=cabin|chest|door` open the door first.
+
+## M6 additions
+- `scripts/machines/dredge.gd`: floats in 0.45 to 4 m of water, feeds itself by `terrain.dig()` under it every 2.2 s, `worked_out` at bedrock. Store item `dredge` (in `inv.gear`). Screenshot `--view=dredge`.
