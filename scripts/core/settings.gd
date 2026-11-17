@@ -132,6 +132,9 @@ static func _pad_map() -> Dictionary:
 		"headlamp": [JOY_BUTTON_DPAD_UP, "D-pad up"], "toggle_mouse": [JOY_BUTTON_START, "Menu"],
 		"dig": [[JOY_AXIS_TRIGGER_RIGHT, 1.0], "RT"], "pan_wash": [[JOY_AXIS_TRIGGER_LEFT, 1.0], "LT"],
 		"scroll_up": [JOY_BUTTON_DPAD_RIGHT, "D-pad"], "scroll_down": [JOY_BUTTON_DPAD_LEFT, "D-pad"],
+		# Driving: left trigger forward, right trigger reverse; Y works the excavator.
+		"drive_gas": [[JOY_AXIS_TRIGGER_LEFT, 1.0], "LT"], "drive_reverse": [[JOY_AXIS_TRIGGER_RIGHT, 1.0], "RT"],
+		"scoop": [JOY_BUTTON_Y, "Y"],
 	}
 
 
@@ -247,9 +250,23 @@ static func reset_pad() -> void:
 	save_file()
 
 
+## Throttle while driving, -1 (full reverse) to 1: the move keys or left stick, plus the triggers.
+static func drive_input() -> float:
+	var t := Input.get_axis("move_back", "move_forward")
+	t += Input.get_action_strength("drive_gas") - Input.get_action_strength("drive_reverse")
+	return clampf(t, -1.0, 1.0)
+
+
 ## Put every rebindable action on its current key, and every action on its controller button.
 static func apply_binds() -> void:
 	_apply_keys()
+	# Godot's own menu actions only know the keyboard: A presses a menu button, B goes back.
+	for ui in [["ui_accept", JOY_BUTTON_A], ["ui_cancel", JOY_BUTTON_B]]:
+		if not InputMap.action_get_events(ui[0]).any(func(e): return e is InputEventJoypadButton):
+			var ub := InputEventJoypadButton.new()
+			ub.device = -1
+			ub.button_index = ui[1]
+			InputMap.action_add_event(ui[0], ub)
 	var m := _pad_map()
 	for action in m:
 		if not InputMap.has_action(action):
@@ -382,7 +399,7 @@ static func help(driving: bool) -> String:
 	if using_pad:
 		var n := func(a: String) -> String: return pad_name(a)
 		if driving:
-			return "Left stick drive / steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Menu pause" % [
+			return "LT forward   RT reverse   Left stick steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Menu pause" % [
 				n.call("jump"), n.call("camera"), n.call("dump"), n.call("interact"), n.call("map")]
 		return "Left stick move   Right stick look   %s sprint   %s jump   RT dig   %s use / pan   %s carry   D-pad adjust   %s dump bucket   %s map   %s headlamp   Menu pause" % [
 			n.call("sprint"), n.call("jump"), n.call("interact"), n.call("carry"), n.call("dump"), n.call("map"), n.call("headlamp")]

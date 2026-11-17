@@ -649,6 +649,11 @@ func _setup_input() -> void:
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("dig", mb)
+	if not InputMap.has_action("scoop"):
+		InputMap.add_action("scoop")       # the excavator's bucket: left mouse, or Y on the controller
+		var smb := InputEventMouseButton.new()
+		smb.button_index = MOUSE_BUTTON_LEFT
+		InputMap.action_add_event("scoop", smb)
 	Settings.apply_binds()     # keys, then the controller buttons on every action
 
 
@@ -1846,6 +1851,40 @@ func _selftest() -> void:
 	kb.pressed = true
 	Settings.note_input(kb)
 	_check("keyboard takes prompts back", not Settings.using_pad and Hud.key("E").contains("G"))
+	# The pause menu with the controller: D-pad down to Settings, A opens it, B comes back.
+	var pad_ev := func(btn: int, down: bool) -> void:
+		var e := InputEventJoypadButton.new()
+		e.device = 0
+		e.button_index = btn
+		e.pressed = down
+		get_viewport().push_input(e)
+	menu.open()
+	await get_tree().process_frame
+	for btn in [JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_DOWN]:
+		pad_ev.call(btn, true)
+		await get_tree().process_frame
+		pad_ev.call(btn, false)
+		await get_tree().process_frame
+	pad_ev.call(JOY_BUTTON_A, true)
+	await get_tree().process_frame
+	pad_ev.call(JOY_BUTTON_A, false)
+	await get_tree().process_frame
+	_check("A presses a pause-menu button", menu._opt_panel.visible)
+	pad_ev.call(JOY_BUTTON_B, true)
+	await get_tree().process_frame
+	pad_ev.call(JOY_BUTTON_B, false)
+	await get_tree().process_frame
+	_check("B goes back", not menu._opt_panel.visible and menu.visible)
+	menu._resume()
+	Settings.note_input(kb)      # back to keyboard prompts for the checks below
+	Input.action_press("drive_gas")
+	var gas := Settings.drive_input()
+	Input.action_release("drive_gas")
+	Input.action_press("drive_reverse")
+	var rev := Settings.drive_input()
+	Input.action_release("drive_reverse")
+	_check("left trigger drives forward, right trigger reverses", gas > 0.9 and rev < -0.9
+		and InputMap.action_get_events("drive_gas").any(func(e): return e is InputEventJoypadMotion and e.axis == JOY_AXIS_TRIGGER_LEFT))
 	_check("prompts show the new key", Hud.key("E").contains("G"))
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)

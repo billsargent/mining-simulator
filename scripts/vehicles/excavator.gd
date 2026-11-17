@@ -96,7 +96,7 @@ func drive_hint() -> String:
 	var t = _target()
 	if t == null:
 		return "Park within %d m of a running trommel or high banker to dig into it" % int(REACH)
-	return "%s Dig a bucket into the %s  (%d/%d)" % [Hud.key("Left mouse"), str(t.display_name).to_lower(), t.hopper.size(), t.hopper_capacity]
+	return "%s Dig a bucket into the %s  (%d/%d)" % [Hud.key("Y" if Settings.using_pad else "Left mouse"), str(t.display_name).to_lower(), t.hopper.size(), t.hopper_capacity]
 
 
 ## Left mouse while driving: scoop the ground in front and swing it into the hopper.
