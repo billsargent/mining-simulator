@@ -113,6 +113,8 @@ func generate() -> void:
 	progress_frac = 0.75
 	progress = "Building roads"
 	_make_sites_and_roads()
+	progress = "Leaving things by the roads"
+	_make_places()
 	progress_frac = 1.0
 	progress = "Done"
 
@@ -265,6 +267,13 @@ func in_pad(x: float, z: float, margin: float) -> bool:
 	for p in pads:
 		if Vector2(x - p.x, z - p.y).length() < p.z + margin:
 			return true
+	if not _spots.is_empty():
+		var c := Vector2i(floori(x / SPOT_CELL), floori(z / SPOT_CELL))
+		for dj in range(-1, 2):
+			for di in range(-1, 2):
+				for p: Vector4 in _spots.get(c + Vector2i(di, dj), []):
+					if Vector2(x - p.x, z - p.y).length() < p.z + margin:
+						return true
 	return false
 
 
@@ -492,6 +501,11 @@ func _apply_pads(x: float, z: float, h: float) -> float:
 		var dd := dx * dx + dz * dz
 		if dd < p.z * p.z:
 			h = lerpf(h, p.w, 1.0 - smoothstep(p.z - maxf(4.0, p.z * 0.3), p.z, sqrt(dd)))
+	if not _spots.is_empty():
+		for p: Vector4 in _spots.get(Vector2i(floori(x / SPOT_CELL), floori(z / SPOT_CELL)), []):
+			var dd := (x - p.x) * (x - p.x) + (z - p.y) * (z - p.y)
+			if dd < p.z * p.z:
+				h = lerpf(h, p.w, 1.0 - smoothstep(p.z * 0.5, p.z, sqrt(dd)))
 	return h
 
 
@@ -920,6 +934,106 @@ func _make_sites_and_roads() -> void:
 			if not in_pad(p.x, p.y, 2.0):
 				boulders.append(Vector4(p.x, 0.0, p.y, radius))
 			i += _rng.randi_range(3, 8)
+
+
+# --- Roadside places --------------------------------------------------------------------------
+
+## Things along the roads: signposts at junctions and now and then, and old places a little way
+## off the road (a ruined cabin, a wreck, graves...). Each gets a small level clearing. The
+## world's places are fixed by the seed; roadside.gd builds them and their secrets.
+var places: Array = []         # {id, kind, pos: Vector2, yaw, h, road: Vector2 (nearest road point)}
+var _spots := {}               # Vector2i(cell) -> Array[Vector4(x, z, radius, height)]
+const SPOT_CELL := 256.0
+const PLACE_KINDS := ["ruin_cabin", "wreck", "graves", "ore_cart", "wagon", "old_sluice", "chimney", "prospect"]
+const PLACE_RADIUS := {"ruin_cabin": 9.0, "wreck": 6.0, "graves": 5.0, "ore_cart": 6.0, "wagon": 5.5,
+	"old_sluice": 7.0, "chimney": 5.0, "prospect": 5.0, "sign": 2.5}
+
+
+func _add_spot(p: Vector2, r: float, h: float) -> void:
+	var v := Vector4(p.x, p.y, r, h)
+	var c0 := Vector2i(floori((p.x - r) / SPOT_CELL), floori((p.y - r) / SPOT_CELL))
+	var c1 := Vector2i(floori((p.x + r) / SPOT_CELL), floori((p.y + r) / SPOT_CELL))
+	for j in range(c0.y, c1.y + 1):
+		for i in range(c0.x, c1.x + 1):
+			var k := Vector2i(i, j)
+			if not _spots.has(k):
+				_spots[k] = []
+			(_spots[k] as Array).append(v)
+
+
+func _add_place(kind: String, p: Vector2, road_p: Vector2) -> void:
+	var h := surface(p.x, p.y)
+	var yaw := atan2(road_p.x - p.x, road_p.y - p.y)       # faces the road
+	places.append({"id": "%s_%d" % [kind, places.size()], "kind": kind, "pos": p, "yaw": yaw, "h": h, "road": road_p})
+	_add_spot(p, PLACE_RADIUS[kind], h)
+
+
+func _place_ok(p: Vector2, min_gap: float) -> bool:
+	if p.x < 40.0 or p.y < 40.0 or p.x > SIZE - 40.0 or p.y > SIZE - 40.0:
+		return false
+	if river_info(p.x, p.y).x < 10.0 or in_pad(p.x, p.y, 30.0) or road_weight(p.x, p.y) > 0.05:
+		return false
+	for s in ["base", "town", "camp", "mine"]:
+		if (sites[s]["pos"] as Vector2).distance_to(p) < 220.0:
+			return false
+	for pl in places:
+		if (pl["pos"] as Vector2).distance_to(p) < min_gap:
+			return false
+	# Not on a steep slope.
+	var h := surface(p.x, p.y, false)
+	for d: Vector2 in [Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5)]:
+		if absf(surface(p.x + d.x, p.y + d.y, false) - h) > 3.2:
+			return false
+	return true
+
+
+func _make_places() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _rng.seed + 77
+	# Signposts where roads meet, and at the ends of the creek roads.
+	var junctions := [roads[0]["pts"][roads[0]["pts"].size() - 1], roads[2]["pts"][0], roads[4]["pts"][0],
+		roads[3]["pts"][0], roads[0]["pts"][0], roads[2]["pts"][roads[2]["pts"].size() - 1]]
+	for jp: Vector2 in junctions:
+		for a in 12:
+			var p := jp + Vector2(cos(a * TAU / 12.0), sin(a * TAU / 12.0)) * 8.0
+			if road_weight(p.x, p.y) < 0.3 and river_info(p.x, p.y).x > 1.0 and not in_pad(p.x, p.y, 0.0):
+				_add_place("sign", p, jp)
+				break
+	# Old places a little way off the roads, every kilometre or so.
+	var kinds := PLACE_KINDS.duplicate()
+	for i in range(kinds.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var t = kinds[i]
+		kinds[i] = kinds[j]
+		kinds[j] = t
+	var n := 0
+	for ri in [1, 0, 2, 3]:
+		var pts: PackedVector2Array = roads[ri]["pts"]
+		var along := 0.0
+		var next_at := rng.randf_range(300.0, 700.0)
+		var next_sign := 1800.0
+		for i in range(1, pts.size()):
+			along += pts[i].distance_to(pts[i - 1])
+			var dir := (pts[i] - pts[i - 1]).normalized()
+			var perp := Vector2(-dir.y, dir.x)
+			if ri == 1 and along > next_sign:
+				# Signposts along the long valley road too.
+				for side: float in [1.0, -1.0]:
+					var sp := pts[i] + perp * side * 7.5
+					if river_info(sp.x, sp.y).x > 1.0 and not in_pad(sp.x, sp.y, 0.0):
+						_add_place("sign", sp, pts[i])
+						next_sign = along + 1800.0
+						break
+			if along < next_at:
+				continue
+			for attempt in 14:
+				var side := 1.0 if attempt % 2 == 0 else -1.0
+				var p := pts[i] + perp * side * rng.randf_range(18.0, 40.0)
+				if _place_ok(p, 260.0):
+					_add_place(kinds[n % kinds.size()], p, pts[i])
+					n += 1
+					break
+			next_at = along + rng.randf_range(550.0, 950.0)
 
 
 func water_level_near(r: Dictionary, p: Vector2) -> float:
