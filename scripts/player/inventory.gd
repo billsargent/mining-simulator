@@ -43,6 +43,14 @@ var specimens := PackedFloat32Array()   # gold in quartz, kept whole: grams of g
 var finds := {}                         # journals and maps already read
 var gear := {}                          # small things from the store: classifier, bucket, sack, moss, detector
 var claims := {}                        # ids of the claims you have bought
+
+# The storage chest in the cabin.
+var chest_cons: Array = []
+var chest_ore: Array = []
+var chest_vial := PackedFloat32Array()
+var chest_nuggets := PackedFloat32Array()
+var chest_specimens := PackedFloat32Array()
+var chest_bars: Array = []
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
 
@@ -57,6 +65,64 @@ func add_gold(pieces: PackedFloat32Array) -> void:
 			nuggets.append(m)
 		else:
 			vial.append(m)
+
+
+## Put every valuable you carry into the chest. Returns how many things moved.
+func store_in_chest() -> int:
+	var n := cons.size() + ore.size() + nuggets.size() + specimens.size() + bars.size() + (1 if not vial.is_empty() else 0)
+	chest_cons.append_array(cons)
+	chest_ore.append_array(ore)
+	chest_bars.append_array(bars)
+	chest_vial.append_array(vial)
+	chest_nuggets.append_array(nuggets)
+	chest_specimens.append_array(specimens)
+	cons = []
+	ore = []
+	bars = []
+	vial = PackedFloat32Array()
+	nuggets = PackedFloat32Array()
+	specimens = PackedFloat32Array()
+	return n
+
+
+## Take everything back out (ore only as far as the sack holds). Returns how many things moved.
+func take_from_chest() -> int:
+	var room := maxi(0, ore_capacity() - ore.size())
+	var ore_out := chest_ore.slice(0, room)
+	var n := chest_cons.size() + ore_out.size() + chest_nuggets.size() + chest_specimens.size() + chest_bars.size() \
+		+ (1 if not chest_vial.is_empty() else 0)
+	cons.append_array(chest_cons)
+	ore.append_array(ore_out)
+	bars.append_array(chest_bars)
+	vial.append_array(chest_vial)
+	nuggets.append_array(chest_nuggets)
+	specimens.append_array(chest_specimens)
+	chest_cons = []
+	chest_ore = chest_ore.slice(room)
+	chest_bars = []
+	chest_vial = PackedFloat32Array()
+	chest_nuggets = PackedFloat32Array()
+	chest_specimens = PackedFloat32Array()
+	return n
+
+
+func chest_goods() -> Array:
+	return [chest_cons.size(), chest_ore.size(), _sum(chest_vial), chest_nuggets.size(), chest_specimens.size(), chest_bars.size()]
+
+
+func carried_goods() -> Array:
+	return [cons.size(), ore.size(), vial_grams(), nuggets.size(), specimens.size(), bars.size()]
+
+
+## [jars, ore, loose grams, nuggets, specimens, bars] as words.
+static func describe_goods(g: Array) -> String:
+	var parts := PackedStringArray()
+	for item in [[g[5], "bar"], [g[3], "nugget"], [g[4], "specimen"], [g[0], "jar"], [g[1], "piece of ore", "pieces of ore"]]:
+		if int(item[0]) > 0:
+			parts.append("%d %s" % [item[0], item[1] if int(item[0]) == 1 else (item[2] if item.size() > 2 else item[1] + "s")])
+	if float(g[2]) > 0.0:
+		parts.append("%.3f g loose gold" % g[2])
+	return ", ".join(parts) if not parts.is_empty() else "nothing"
 
 
 func bucket_capacity() -> int:
@@ -113,6 +179,8 @@ func to_dict() -> Dictionary:
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
 		"crusher_powered": crusher_powered, "specimens": specimens, "finds": finds, "gear": gear, "claims": claims,
+		"chest": {"cons": _dirt_out(chest_cons), "ore": _dirt_out(chest_ore), "vial": chest_vial, "nuggets": chest_nuggets,
+			"specimens": chest_specimens, "bars": chest_bars},
 	}
 
 
@@ -134,6 +202,13 @@ func from_dict(d: Dictionary) -> void:
 	finds = d.get("finds", {})
 	gear = d.get("gear", {})
 	claims = d.get("claims", {})
+	var ch: Dictionary = d.get("chest", {})
+	chest_cons = _dirt_in(ch.get("cons", []))
+	chest_ore = _dirt_in(ch.get("ore", []))
+	chest_vial = ch.get("vial", PackedFloat32Array())
+	chest_nuggets = ch.get("nuggets", PackedFloat32Array())
+	chest_specimens = ch.get("specimens", PackedFloat32Array())
+	chest_bars = ch.get("bars", [])
 
 
 static func _sum(a: PackedFloat32Array) -> float:

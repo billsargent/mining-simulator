@@ -732,6 +732,18 @@ func _apply_view() -> void:
 			"assay":
 				from = town.to_global(Vector3(1.0, 0.0, 0.6))
 				at = town.to_global(Vector3(1.4, 1.1, -2.4))
+			"cabin":
+				base.door.set_open(true, true)
+				from = base.to_global(Vector3(1.9, 0.1, -0.2))
+				at = base.to_global(Vector3(-1.4, 0.6, -3.0))
+			"chest":
+				base.door.set_open(true, true)
+				from = base.to_global(Vector3(-0.2, 0.1, -1.5))
+				at = base.to_global(Vector3(-1.4, 0.4, 0.1))
+			"door":
+				base.door.set_open(true, true)
+				from = base.to_global(Vector3(0.9, 0.0, 3.6))
+				at = base.to_global(Vector3(0.6, 1.2, -1.0))
 			"journal":
 				from = base.to_global(Vector3(-1.5, 0.0, 5.6))
 				at = base.to_global(Vector3(-1.9, 0.5, 3.3))
@@ -1126,7 +1138,55 @@ func _selftest() -> void:
 	for i in 20:
 		await get_tree().physics_frame
 
+	# The cabin: open the door, walk in, use the chest, sleep in the bunk.
+	base.door.set_open(false, true)
+	player.global_position = base.to_global(Vector3(0.9, 0.15, 2.2))
+	player.rotation.y = base.rotation.y
+	player.camera.rotation.x = 0.0
+	player.velocity = Vector3.ZERO
+	for i in 5:
+		await get_tree().physics_frame
+	Input.action_press("move_forward")
+	for i in 70:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	var shut_z: float = base.to_local(player.global_position).z
+	_check("a closed door keeps you out", shut_z > HomeBase.CABIN_Z + HomeBase.CABIN_D * 0.5)
+	base.door.interact(player)
+	for i in 40:
+		await get_tree().physics_frame
+	player.global_position = base.to_global(Vector3(0.9, 0.1, 1.3))
+	player.velocity = Vector3.ZERO
+	Input.action_press("move_forward")
+	for i in 70:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	var lp: Vector3 = base.to_local(player.global_position)
+	_check("an open door lets you into the cabin", lp.z < HomeBase.CABIN_Z + 0.6 and absf(lp.y - 0.1) < 0.2 and player.is_on_floor())
+	print("  walked in to (%.2f, %.2f, %.2f) in the cabin" % [lp.x, lp.y, lp.z])
+	inv.bars.append({"grams": 5.0, "purity": 0.9})
+	inv.add_gold(PackedFloat32Array([0.05, 0.5]))
+	inv.ore.clear()
+	inv.ore.append(Paydirt.new())
+	var jars_before: int = inv.cons.size()
+	base.chest.interact(player)
+	_check("the chest takes your goods", inv.bars.is_empty() and inv.nuggets.is_empty() and inv.vial.is_empty() and inv.ore.is_empty()
+		and inv.cons.is_empty() and inv.chest_bars.size() == 1 and inv.chest_nuggets.size() == 1 and inv.chest_ore.size() == 1)
+	save_now()
+	var saved_chest: Dictionary = SaveGame.read().get("inventory", {}).get("chest", {})
+	_check("the chest is saved", (saved_chest.get("bars", []) as Array).size() == 1 and (saved_chest.get("cons", []) as Array).size() == jars_before)
+	SaveGame.delete()
+	base.chest.scroll(player, 1)
+	base.chest.interact(player)
+	_check("and gives them back", inv.bars.size() == 1 and inv.nuggets.size() == 1 and inv.ore.size() == 1 and inv.cons.size() == jars_before
+		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001)
+	_check("the bunk is inside", base.to_local(base.bed.global_position).z < HomeBase.CABIN_Z)
+
 	# Walk.
+	player.global_position = base.spawn_point
+	player.velocity = Vector3.ZERO
+	for i in 5:
+		await get_tree().physics_frame
 	start = player.global_position
 	Input.action_press("move_forward")
 	for i in 60:

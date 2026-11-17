@@ -67,3 +67,4 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - To change another object's packed array, call a method on that object (e.g. `Paydirt.add_gold`, `Inventory.add_gold`). Appending through a property may not persist.
 - In bbcode prompts, write literal brackets as `[lb]`/`[rb]` (`Hud.key()` does this).
 - CPUParticles3D ignored vertex colors here; color particles through the material's albedo instead.
+- Cabin interior (`home_base._interior()`): `cabin_door.gd` (hinged, E opens), `bed.gd` (sleep), `storage_chest.gd` (inventory `chest_*` fields; `store_in_chest()` / `take_from_chest()`). Screenshot views `--view=cabin|chest|door` open the door first.
