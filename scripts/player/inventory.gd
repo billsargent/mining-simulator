@@ -6,16 +6,17 @@ const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const NUGGET_MASS := 0.3
 const GOALS = [
 	["journal", "Read Grandpa's journal: it's on the crate in front of the porch (E)."],
-	["pan", "Dig some gravel (left mouse), then pan it at the creek's edge (E)."],
+	["pan", "Dig some gravel (left mouse), then pan it at the creek's edge (E). The green marker shows where."],
+	["read_creek", "Read the creek: gold sinks where the water slows. Try the inside of a bend or just below a big boulder, and dig deep. Pan until you get a few colors."],
 	["sluice_placed", "Carry the sluice from the shed (F) and set it in the creek (left mouse)."],
 	["sluice_fed", "Dig right next to the sluice: each shovelful goes straight in."],
 	["cleaned", "Clean out the sluice's riffles (E on the sluice)."],
 	["cons_panned", "Pan your jar of concentrate at the wash tub by the cabin (E)."],
 	["smelted", "Melt your gold into a bar at the furnace (E)."],
+	["drive", "Hop on the ATV or the pickup parked by the cabin (E) and drive it: town is a long walk."],
 	["sold", "Sell the bar at the assay office in town: take the road down Cabin Creek, then east along the river. M opens the map."],
 	["high_banker", "Save up $900 and buy a high banker at the general store in town."],
 	["hb_running", "Set the pump at the creek's edge and the high banker on the bank, then feed it."],
-	["drive", "Hop on the ATV or the pickup parked by the cabin (E) and take it for a spin."],
 	["haul", "Carry a machine to a vehicle and set it on the rack or in the bed (left mouse)."],
 	["map", "Open the map (M) and drop a waypoint where you want to go (left click)."],
 	["last_chance", "Find the old camp on Last Chance Creek. The old-timers said that creek was rich."],
@@ -164,6 +165,14 @@ func complete_goal(id: String) -> bool:
 		return false
 	goals_done[id] = true
 	return true
+
+
+## The id of the next goal, or "" when they're all done.
+func next_goal_id() -> String:
+	for g in GOALS:
+		if not goals_done.has(g[0]):
+			return g[0]
+	return ""
 
 
 func next_goal() -> String:

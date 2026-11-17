@@ -83,6 +83,7 @@ var _loading_label: Label
 var _loading_bar: ProgressBar
 var _dark := false
 var _compass_t := 0.0
+var _tutorial_spot := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -232,8 +233,66 @@ func heading() -> float:
 	return atan2(fwd.x, -fwd.z)
 
 
+## Where the next goal happens, for the guide marker; null where there is no one place.
+func goal_target():
+	var id := player.inv.next_goal_id()
+	var sluice = machine_of("sluice")
+	match id:
+		"journal":
+			return base.journal.global_position
+		"pan", "read_creek":
+			if _tutorial_spot == Vector2.ZERO:
+				var home: Vector2 = world.sites["base"]["pos"]
+				_tutorial_spot = deposits.rich_spot_near("Cabin Creek", home, 220.0)
+			return _ground3(_tutorial_spot)
+		"sluice_placed":
+			if sluice != null and sluice.carried:
+				return goal_target_spot()
+			return sluice.global_position if sluice != null else null
+		"sluice_fed", "cleaned":
+			return sluice.global_position if sluice != null else null
+		"cons_panned":
+			return base.wash_tub.global_position
+		"smelted":
+			return base.furnace.global_position
+		"drive":
+			var atv = vehicle_of("atv")
+			return atv.global_position if atv != null else null
+		"sold":
+			return town.assay.global_position
+		"high_banker":
+			return town.store.global_position
+		"hb_running":
+			var hb = machine_of("high_banker")
+			return hb.global_position if hb != null else null
+		"last_chance":
+			return _ground3(world.sites["camp"]["pos"])
+		"mine_enter":
+			return _ground3(world.sites["mine"]["pos"])
+		"crushed":
+			return base.crusher.global_position
+		"claim":
+			return town.claims_office.global_position
+	return null
+
+
+## The bar the tutorial sends you to (also where the sluice goes first).
+func goal_target_spot() -> Vector3:
+	if _tutorial_spot == Vector2.ZERO:
+		_tutorial_spot = deposits.rich_spot_near("Cabin Creek", world.sites["base"]["pos"], 220.0)
+	return _ground3(_tutorial_spot)
+
+
+func _ground3(p: Vector2) -> Vector3:
+	return Vector3(p.x, terrain.height_at(p.x, p.y), p.y)
+
+
 func _update_compass() -> void:
 	var markers := []
+	var goal = goal_target() if player.mine == null else null
+	hud.set_guide(goal, get_viewport().get_camera_3d())
+	if goal != null:
+		markers.append([Vector2(goal.x, goal.z), Color(0.45, 1.0, 0.5), "Next"])
 	for i in map_view.waypoints.size():
 		markers.append([map_view.waypoints[i], Color(1.0, 0.85, 0.2), str(i + 1)])
 	markers.append([world.sites["base"]["pos"], Color(1.0, 0.55, 0.25), "Home"])
@@ -420,7 +479,7 @@ func _start_fresh() -> void:
 	for k in 7:
 		var q := home.lerp(town_pos, k / 6.0)
 		map_view.reveal_around(Vector3(q.x, 0.0, q.y))
-	hud.toast("Grandpa's claim on Cabin Creek. Your next step is always in the top-left corner.", Color(1.0, 0.9, 0.6), 8.0)
+	hud.toast("Grandpa's claim on Cabin Creek. Your next step is in the top-left corner; the green marker shows where.", Color(1.0, 0.9, 0.6), 8.0)
 
 
 func _parked(i: int) -> Transform3D:
@@ -1567,6 +1626,26 @@ func _selftest() -> void:
 		await get_tree().physics_frame
 	Input.action_release("move_forward")
 	_check("walking moves the player", start.distance_to(player.global_position) > 1.5)
+
+	# Onboarding: every early step has a place to point at, and the panning spot is a good one.
+	var saved_goals: Dictionary = player.inv.goals_done
+	player.inv.goals_done = {}
+	var early_ok := true
+	for g in ["journal", "pan", "read_creek", "sluice_placed", "sluice_fed", "cleaned", "cons_panned", "smelted", "drive", "sold"]:
+		if goal_target() == null:
+			print("  no guide target for ", g)
+			early_ok = false
+		player.inv.goals_done[g] = true
+	_check("every step to the first sale has a guide target", early_ok)
+	var bar_spot := goal_target_spot()
+	var home2: Vector2 = world.sites["base"]["pos"]
+	var avg := 0.0
+	for i in 20:
+		var rp := world.river_point("Cabin Creek", i / 20.0, 0.0)
+		avg += deposits.richness(rp.x, rp.y) / 20.0
+	_check("the tutorial bar is near the cabin and richer than the creek's average",
+		Vector2(bar_spot.x, bar_spot.z).distance_to(home2) < 225.0 and deposits.richness(bar_spot.x, bar_spot.z) > avg)
+	player.inv.goals_done = saved_goals
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)

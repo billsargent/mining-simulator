@@ -68,6 +68,22 @@ func rich_spot(river_name: String) -> Vector2:
 	return best
 
 
+## The richest spot on a creek within reach of a point: where the tutorial sends a new player.
+func rich_spot_near(river_name: String, center: Vector2, reach: float) -> Vector2:
+	var best := Vector2.ZERO
+	var best_r := -1.0
+	for i in 500:
+		for frac: float in [-1.2, -0.6, 0.0, 0.6, 1.2]:
+			var p := world.river_point(river_name, i / 500.0, frac)
+			if p.distance_to(center) > reach:
+				continue
+			var r := richness(p.x, p.y)
+			if r > best_r:
+				best_r = r
+				best = p
+	return best
+
+
 ## Gold drops out in the slack water just downstream of a creek boulder.
 func _boulder_bonus(x: float, z: float) -> float:
 	var best := 0.0
