@@ -115,9 +115,37 @@ func exit() -> void:
 	var p = driver
 	driver = null
 	_settle = SETTLE_TIME
-	var spot := to_global(exit_offset)
-	spot.y = terrain.height_at(spot.x, spot.z) + 0.1
-	p.end_driving(spot, rotation.y)
+	p.end_driving(_exit_spot(), rotation.y)
+
+
+## Where to step out: the exit side if there's room for a person there, else the other side,
+## behind, or in front. Stepping out into the vehicle would shove it over.
+func _exit_spot() -> Vector3:
+	var side := exit_offset
+	var tries := [side, Vector3(-side.x, 0, side.z), side * 1.5, Vector3(0, 0, 2.6), Vector3(0, 0, -2.6),
+		Vector3(-side.x * 1.5, 0, side.z)]
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.45
+	shape.height = 1.5
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = shape
+	q.exclude = [get_rid()]
+	var space := get_world_3d().direct_space_state
+	var first := Vector3.ZERO
+	for k in tries.size():
+		var spot: Vector3 = global_position + global_basis.get_rotation_quaternion() * tries[k]
+		spot.y = terrain.height_at(spot.x, spot.z) + 0.1
+		if k == 0:
+			first = spot
+		q.transform = Transform3D(Basis.IDENTITY, spot + Vector3(0, 1.0, 0))
+		var hit := false
+		for r in space.intersect_shape(q, 8):
+			if r["collider"] == self or (r["collider"] is Node and (r["collider"] as Node).is_in_group("vehicles")):
+				hit = true
+				break
+		if not hit:
+			return spot
+	return first
 
 
 func speed_kmh() -> float:
@@ -140,9 +168,15 @@ func _unhandled_input(event: InputEvent) -> void:
 var _engine_snd: AudioStreamPlayer3D
 
 
+const TIPPED_UP := 0.35         # up vector's height below which a vehicle counts as on its side
+const RIGHT_DELAY := 1.2        # seconds tipped and still before it's set back on its wheels
+var _tipped_t := 0.0
+
+
 func _physics_process(delta: float) -> void:
 	_enter_block -= delta
 	_engine_sound()
+	_keep_upright(delta)
 	if driver != null:
 		_driver_controls()
 	elif not freeze:
@@ -153,6 +187,39 @@ func _physics_process(delta: float) -> void:
 	if freeze:
 		return
 	_drive(delta)
+
+
+## Vehicles never stay on their side or sunk into the ground: a tipped vehicle that has come
+## to rest is set back on its wheels, one below the ground is lifted out, and a hard lean while
+## moving gets a push back toward upright.
+func _keep_upright(delta: float) -> void:
+	if kind == "trailer" and get("towed_by") != null:
+		return       # the pickup decides; the hitch would fight a reset
+	var up := global_basis.y
+	var p := global_position
+	var ground: float = terrain.height_at(p.x, p.z)
+	var body_y := to_global(Vector3(0.0, com_y, 0.0)).y
+	if body_y < ground - 0.05 and terrain.water_depth(p.x, p.z) <= 0.0:
+		_set_upright()
+		return
+	if up.y < TIPPED_UP:
+		if linear_velocity.length() < 1.5 or freeze:
+			_tipped_t += delta
+			if _tipped_t > RIGHT_DELAY:
+				_set_upright()
+		return
+	_tipped_t = 0.0
+	if not freeze and up.y < 0.8:
+		# Roll assist: torque back toward level, stronger the further it leans.
+		var axis := up.cross(Vector3.UP)
+		apply_torque(axis * mass * 18.0 * (1.0 - up.y))
+
+
+func _set_upright() -> void:
+	_tipped_t = 0.0
+	freeze = false
+	_flip_upright()
+	_settle = SETTLE_TIME
 
 
 ## Idle when someone sits in it; revs up with speed and throttle.

@@ -1671,6 +1671,30 @@ func _selftest() -> void:
 	Sfx.play("sell")
 	_check("sounds play", sfx_node._pool3.size() > 0 and sfx_node._pool.size() > 0)
 
+	# Vehicles right themselves: on its side, it's back on its wheels; sunk, it's lifted out.
+	var quad = vehicle_of("atv")
+	var qp: Vector3 = quad.global_position
+	quad.freeze = false
+	quad.global_transform = Transform3D(Basis(Vector3.FORWARD, PI / 2.0), Vector3(qp.x, terrain.height_at(qp.x, qp.z) + 0.6, qp.z))
+	quad.linear_velocity = Vector3.ZERO
+	for i in 180:
+		await get_tree().physics_frame
+	_check("a tipped-over ATV rights itself", quad.global_basis.y.y > 0.8)
+	quad.freeze = false
+	quad.global_transform = Transform3D(Basis.IDENTITY, Vector3(qp.x, terrain.height_at(qp.x, qp.z) - 0.8, qp.z))
+	for i in 30:
+		await get_tree().physics_frame
+	_check("an ATV sunk in the ground is lifted out", quad.to_global(Vector3(0, quad.com_y, 0)).y > terrain.height_at(quad.global_position.x, quad.global_position.z) - 0.05)
+	for i in 120:
+		await get_tree().physics_frame
+	quad.enter(player)
+	for i in 10:
+		await get_tree().physics_frame
+	quad.exit()
+	for i in 90:
+		await get_tree().physics_frame
+	_check("getting off doesn't knock it over", quad.global_basis.y.y > 0.8 and player.global_position.distance_to(quad.global_position) > 1.0)
+
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)
 	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
