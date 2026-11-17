@@ -36,6 +36,7 @@ const Sluice = preload("res://scripts/machines/sluice.gd")
 const HighBanker = preload("res://scripts/machines/high_banker.gd")
 const Pump = preload("res://scripts/machines/pump.gd")
 const Dredge = preload("res://scripts/machines/dredge.gd")
+const DryWasher = preload("res://scripts/machines/dry_washer.gd")
 const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
@@ -380,6 +381,8 @@ func spawn_machine(kind: String):
 			m = Pump.new()
 		"dredge":
 			m = Dredge.new()
+		"dry_washer":
+			m = DryWasher.new()
 		_:
 			return null
 	add_child(m)
@@ -421,6 +424,8 @@ func deliver(item: String) -> void:
 	if item == "high_banker":
 		spawn_machine("high_banker").place_at(base.slot_position(1), base.slot_yaw())
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
+	elif item == "dry_washer":
+		spawn_machine("dry_washer").place_at(base.to_global(Vector3(-10.8, 0.0, 2.0)), base.slot_yaw())
 	elif item == "dredge":
 		spawn_machine("dredge").place_at(base.to_global(Vector3(-8.0, 0.0, 2.2)), base.slot_yaw())
 	elif item == "crusher":
@@ -776,6 +781,11 @@ func _apply_view() -> void:
 				var q := world.river_point("Coyote Wash", 0.56, 0.0)
 				from = Vector3(p.x, 0.0, p.y)
 				at = Vector3(q.x, terrain.height_at(q.x, q.y), q.y)
+				var dwp := world.river_point("Coyote Wash", 0.505, 1.6)
+				var dwm = spawn_machine("dry_washer")
+				dwm.place_at(Vector3(dwp.x, 0.0, dwp.y), 0.6)
+				from = Vector3(dwp.x, 0.0, dwp.y) + Vector3(2.5, 0.0, 2.5)
+				at = dwm.global_position + Vector3(0, 0.6, 0)
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -1254,6 +1264,29 @@ func _selftest() -> void:
 		and terrain.height_at(deep.x, deep.z) < bed_before - 0.05)
 	dredge.interact(player)
 	_check("its riffles clean out into a jar", not dredge.has_concentrate())
+
+	# The dry washer: no water needed, but it has to stand on dry ground on your claim.
+	inv.money += 5100
+	town.store.select("dry_washer")
+	town.store.interact(player)
+	var dw = machine_of("dry_washer")
+	_check("the dry washer is delivered", dw != null)
+	dw.place_at(_v3(world.river_point("Cabin Creek", 0.57, 0.3)), 0.0)
+	_check("the dry washer refuses the creek", dw.water_problem() != "")
+	var wash := _v3(deposits.rich_spot("Coyote Wash"))
+	dw.place_at(wash, 0.0)
+	_check("the dry washer is happy in the dry wash, once the claim is yours", dw.water_problem() == "" and not dw.is_running())
+	town.claims_office.select("coyote")
+	town.claims_office.interact(player)
+	for i in 3:
+		var res := terrain.dig(wash + Vector3(1.5, 0, 0), Player.DIG_DEPTH, Player.DIG_RADIUS)
+		dw.feed(deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"]))
+	for i in 300:
+		await get_tree().physics_frame
+	print("  dry washer: %d shovelfuls through, %d pieces caught, %d lost" % [dw.processed_total, dw.caught.size(), dw.lost.size()])
+	_check("the dry washer runs and catches gold", dw.is_running() and dw.processed_total == 3 and dw.caught.size() > 0)
+	_check("air loses more fine gold than water", Recovery.catch_chance(0.002, 7.0, DryWasher.DRY_PENALTY) < Recovery.catch_chance(0.002, 7.0))
+	_check("the metal detector reads the dry wash", deposits.richness(wash.x, wash.z) > 0.8)
 
 	# Walk.
 	player.global_position = base.spawn_point

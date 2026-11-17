@@ -17,6 +17,7 @@ const ITEMS = [
 	["moss", "Miner's moss carpet", 300, "your sluice and high banker hold on to much more of the fine gold"],
 	["detector", "Metal detector", 700, "shows how much gold is in the ground under your feet"],
 	["dredge", "Suction dredge, with permit", 2500, "floats in deeper water and sucks up the river bottom by itself"],
+	["dry_washer", "Dry washer", 1100, "recovers gold with air instead of water, for the desert washes"],
 ]
 const SHOWN := 5
 
@@ -106,6 +107,9 @@ func interact(player) -> void:
 		"crusher":
 			inv.crusher_powered = true
 			said = "A powered rock crusher, set up by the wash tub at your cabin."
+		"dry_washer":
+			inv.gear["dry_washer"] = true
+			said = "A dry washer. It's waiting by the shed: carry it (F) to dry gravel on your claim and dig next to it."
 		"dredge":
 			inv.gear["dredge"] = true
 			said = "A suction dredge and a dredging permit. It's waiting by the shed: carry it (F) to deep water on your claim."

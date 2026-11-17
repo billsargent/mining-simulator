@@ -20,6 +20,8 @@ static func setup(world, deposits) -> void:
 	_add("rattlesnake", "Rattlesnake No. 2", "Rattlesnake Gulch", deposits.rich_spot("Rattlesnake Gulch"), 70.0, 2500)
 	_add("tamarack", "Tamarack Cross", "Tamarack Creek", deposits.rich_spot("Tamarack Creek"), 70.0, 3500)
 	_add("last_chance", "Last Chance Discovery", "Last Chance Creek", camp, 85.0, 6000)
+	if not world.river_by_name("Coyote Wash").is_empty():
+		_add("coyote", "Coyote Wash Placer", "Coyote Wash", deposits.rich_spot("Coyote Wash"), 75.0, 4000)
 
 
 static func _add(id: String, name: String, river: String, pos: Vector2, radius: float, price: int) -> void:
