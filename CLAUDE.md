@@ -75,4 +75,7 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Regions: `WorldGen.REGIONS` (name, center, hills, ridges, forest, bare). Blends are precomputed on a 32 m grid (`_region_fields`); `forest()` and `bare()` read it. The terrain shader gets matching colors from `world_terrain.gd`. Screenshot a region with `--region=<0-5> [--yaw=deg]`.
 - Test and screenshot runs never capture the mouse (`Settings.grab_mouse`); use `Settings.capture_mouse()` / `Settings.mouse_captured()` instead of setting `Input.mouse_mode`. `--mouse` turns capture back on.
 - Don't run several windowed screenshot runs in parallel: each 8 km instance uses about 700 MB.
+- Land detail is lazy: `world_gen._fi()` builds 64 m detail tiles (river distance, level, width, bend, richness, roads, bench) on first use, only where the coarse mask `_cnear` says a river (bit 1, dry wash bit 4) or band (bit 2) is near. Elsewhere `_base_at()` is a direct formula. Distant terrain (`step >= 8 m`), the map image and tree placement use `coarse_sample()` / `coarse_surface()`, which need no tiles. Creek boulders get exact heights when within 650 m (`scatter._stream_boulders`).
+- Check coarse accuracy: `godot --headless --path . --script res://tests/test_coarse.gd`. The world test prints how many detail tiles were built.
+- The player has a fall-through safety net on the surface: collision can lag a moment after a long teleport.
 

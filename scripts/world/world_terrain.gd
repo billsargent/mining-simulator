@@ -483,7 +483,7 @@ func _node_arrays(key: Vector3i) -> Array:
 		var z := z0 + (j - 1) * step
 		for i in m:
 			var x := x0 + (i - 1) * step
-			var s := world.sample(x, z)
+			var s := world.sample(x, z) if step < 8.0 else world.coarse_sample(x, z)
 			var h := s.x
 			var dug := 0.0
 			var exposed := 0.0

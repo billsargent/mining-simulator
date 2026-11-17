@@ -184,6 +184,13 @@ func _physics_process(delta: float) -> void:
 	if mine != null and global_position.y < mine.global_position.y - 3.0:
 		global_position = mine.spawn_point()      # safety net: never fall out of the mine
 		velocity = Vector3.ZERO
+	elif mine == null and driving == null:
+		# Safety net: after a long jump (leaving the mine, a teleport) the ground's collision can
+		# take a moment to build. Never let the player drop through it meanwhile.
+		var g := terrain.height_at(global_position.x, global_position.z)
+		if global_position.y < g - 0.5:
+			global_position.y = g + 0.05
+			velocity.y = 0.0
 	if captured and Input.is_action_pressed("dig") and _dig_cd <= 0.0:
 		if mine != null:
 			_try_chip()

@@ -157,6 +157,8 @@ func _ready() -> void:
 	_build_near_player()
 	_loading.queue_free()
 	ready_to_play = true
+	if not _opts.is_empty():
+		print("Loaded in %d ms, %d detail tiles" % [Time.get_ticks_msec(), world.tiles_built])
 	day_night.apply()
 	if _saving:
 		var timer := Timer.new()

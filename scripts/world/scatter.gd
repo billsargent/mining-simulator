@@ -18,6 +18,7 @@ const GRASS_RADIUS := 60.0
 const COLLIDE_RADIUS := 72.0
 const NEAR_TREES := 230.0
 const MAX_GRASS_TASKS := 6
+const BOULDER_RADIUS := 650.0   # creek boulders get their exact height (and appear) within this range
 
 var world: WorldGen
 var terrain: Terrain
@@ -36,6 +37,9 @@ var _grass_mesh: ArrayMesh
 var _hidden := Transform3D(Basis.from_scale(Vector3(0.0001, 0.0001, 0.0001)), Vector3(0, -500, 0))
 var _shapes := {}
 var _stream_t := 0.0
+var _boulder_regions := {}  # Vector2i region -> PackedFloat32Array [x, z, radius, yaw, variant], waiting
+var _rock_meshes: Array[ArrayMesh] = []
+var _rock_mat: StandardMaterial3D
 
 
 # --- Layout (thread-safe, run during loading) --------------------------------------------
@@ -43,13 +47,14 @@ var _stream_t := 0.0
 func layout() -> void:
 	var task := WorkerThreadPool.add_group_task(_layout_region, RN * RN)
 	WorkerThreadPool.wait_for_group_task_completion(task)
-	# Creek boulders go into the region they sit in.
+	# Creek boulders sit in the channel, where only the detail tiles know the exact ground, so
+	# they wait until you come near (_stream_boulders).
 	for b in world.boulders:
 		var r := Vector2i(clampi(floori(b.x / REGION), 0, RN - 1), clampi(floori(b.z / REGION), 0, RN - 1))
-		var list: PackedFloat32Array = _rocks[r]
-		for v in [b.x, world.surface(b.x, b.z), b.z, b.w, fposmod(b.x * 7.31, TAU), float(int(b.z) % 4)]:
+		var list: PackedFloat32Array = _boulder_regions.get(r, PackedFloat32Array())
+		for v in [b.x, b.z, b.w, fposmod(b.x * 7.31, TAU), float(int(b.z) % 4)]:
 			list.append(v)
-		_rocks[r] = list
+		_boulder_regions[r] = list
 
 
 func _layout_region(idx: int) -> void:
@@ -67,7 +72,7 @@ func _layout_region(idx: int) -> void:
 			var s := rng.randf_range(0.75, 1.35)
 			var yaw := rng.randf() * TAU
 			if _tree_ok(x, z, p):
-				for v in [x, world.surface(x, z), z, s, yaw]:
+				for v in [x, _ground(x, z), z, s, yaw]:
 					trees.append(v)
 	var rocks := PackedFloat32Array()
 	for k in 6:
@@ -76,8 +81,8 @@ func _layout_region(idx: int) -> void:
 		var r := lerpf(0.4, 1.8, pow(rng.randf(), 2.0))
 		var yaw := rng.randf() * TAU
 		var variant := float(rng.randi() % 4)
-		if world.river_info(x, z).x > 12.0 and world.road_weight(x, z) < 0.05 and not world.in_pad(x, z, 3.0):
-			for v in [x, world.surface(x, z), z, r, yaw, variant]:
+		if world.coarse_river_edge(x, z) > 12.0 and not world.near_band(x, z) and not world.in_pad(x, z, 3.0):
+			for v in [x, world.coarse_surface(x, z), z, r, yaw, variant]:
 				rocks.append(v)
 	_mutex.lock()
 	_trees[Vector2i(rx, rz)] = trees
@@ -85,19 +90,26 @@ func _layout_region(idx: int) -> void:
 	_mutex.unlock()
 
 
+## Ground height for a tree: the detail tiles next to roads and the bench, the coarse estimate
+## everywhere else (within a few centimeters on river banks).
+func _ground(x: float, z: float) -> float:
+	return world.surface(x, z) if world.near_band(x, z) else world.coarse_surface(x, z)
+
+
 func _tree_ok(x: float, z: float, p: float) -> bool:
 	if x < 2.0 or z < 2.0 or x > WorldGen.SIZE - 2.0 or z > WorldGen.SIZE - 2.0:
 		return false
-	if world.river_info(x, z).x < 10.0 or world.road_weight(x, z) > 0.05:
-		return false
-	if world.bench_weight(x, z) > 0.3 and p < 0.85:
+	if world.coarse_river_edge(x, z) < 10.0:
 		return false
 	if world.in_pad(x, z, 4.0):
 		return false
 	if p > smoothstep(0.35, 0.7, world.forest(x, z)) * 0.85 + 0.06 * (1.0 - world.bare(x, z)):
 		return false
-	var h := world.surface(x, z)
-	var n := Vector3(h - world.surface(x + 1.5, z), 1.5, h - world.surface(x, z + 1.5)).normalized()
+	# Only next to roads and the bench does placing a tree need the detail tiles.
+	if world.near_band(x, z) and (world.road_weight(x, z) > 0.05 or (world.bench_weight(x, z) > 0.3 and p < 0.85)):
+		return false
+	var h := _ground(x, z)
+	var n := Vector3(h - _ground(x + 1.5, z), 1.5, h - _ground(x, z + 1.5)).normalized()
 	return n.y > 0.72
 
 
@@ -147,7 +159,9 @@ func build_visuals() -> void:
 	var rock_meshes: Array[ArrayMesh] = []
 	for v in 4:
 		rock_meshes.append(_rock_mesh(v))
+	_rock_meshes = rock_meshes
 	var rock_mat := StandardMaterial3D.new()
+	_rock_mat = rock_mat
 	rock_mat.albedo_color = Color(0.55, 0.53, 0.5)
 	rock_mat.albedo_texture = Tex.noise(0.03, 70, 256)
 	rock_mat.normal_enabled = true
@@ -228,6 +242,7 @@ func _exit_tree() -> void:
 
 
 func _stream_colliders() -> void:
+	_stream_boulders()
 	for rz in RN:
 		for rx in RN:
 			var r := Vector2i(rx, rz)
@@ -241,6 +256,40 @@ func _stream_colliders() -> void:
 			elif dist > COLLIDE_RADIUS + 32.0 and _colliders.has(r):
 				(_colliders[r] as Node).queue_free()
 				_colliders.erase(r)
+
+
+## Creek boulders near the focus: exact heights from the detail tiles, then drawn.
+func _stream_boulders() -> void:
+	if _rock_meshes.is_empty():
+		return
+	for r: Vector2i in _boulder_regions.keys():
+		var center := Vector2((r.x + 0.5) * REGION, (r.y + 0.5) * REGION)
+		if center.distance_to(Vector2(focus.x, focus.z)) > BOULDER_RADIUS:
+			continue
+		var data: PackedFloat32Array = _boulder_regions[r]
+		_boulder_regions.erase(r)
+		var rocks: PackedFloat32Array = _rocks.get(r, PackedFloat32Array())
+		var lists := [[], [], [], []]
+		var c3 := Vector3(center.x, 0.0, center.y)
+		for i in data.size() / 5:
+			var o := i * 5
+			var x := data[o]
+			var z := data[o + 1]
+			var rad := data[o + 2]
+			var y := world.surface(x, z)
+			for v in [x, y, z, rad, data[o + 3], data[o + 4]]:
+				rocks.append(v)
+			(lists[int(data[o + 4])] as Array).append(Transform3D(Basis(Vector3.UP, data[o + 3]).scaled(Vector3.ONE * rad),
+				Vector3(x, y + rad * 0.12, z) - c3))
+		_rocks[r] = rocks
+		for v in 4:
+			if not (lists[v] as Array).is_empty():
+				var mmi := _mmi(_rock_meshes[v], lists[v], c3)
+				mmi.material_override = _rock_mat
+				mmi.visibility_range_end = 700.0
+		if _colliders.has(r):
+			(_colliders[r] as Node).queue_free()
+			_colliders.erase(r)
 
 
 func _make_colliders(r: Vector2i) -> StaticBody3D:
