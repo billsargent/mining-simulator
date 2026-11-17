@@ -1,14 +1,13 @@
 extends Node3D
-## Grandpa's place: a log cabin with a porch, wash tub, furnace and pouring table, the gold
-## buyer's box, an order board, and an open shed where equipment is kept.
+## Grandpa's place: a log cabin with a porch, wash tub, furnace and pouring table, Grandpa's
+## journal, an ore crusher, and an open shed where equipment is kept.
 ## Local axes: +Z faces the creek.
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const CabinDoor = preload("res://scripts/base/cabin_door.gd")
 const WashTub = preload("res://scripts/base/wash_tub.gd")
 const Furnace = preload("res://scripts/base/furnace.gd")
-const ShipBox = preload("res://scripts/base/ship_box.gd")
-const OrderBoard = preload("res://scripts/base/order_board.gd")
+const Find = preload("res://scripts/mine/find.gd")
 
 const CABIN_W := 5.6
 const CABIN_D := 4.4
@@ -23,8 +22,7 @@ var spawn_point := Vector3.ZERO
 var spawn_yaw := 0.0
 var furnace
 var wash_tub
-var ship_box
-var order_board
+var journal
 var crusher
 
 
@@ -40,9 +38,11 @@ func build(terrain, site: Vector3, facing: Vector3) -> void:
 	_shed()
 	wash_tub = _station(WashTub, Vector3(-3.6, 0, 2.4))
 	furnace = _station(Furnace, Vector3(4.4, 0, 0.4))
-	ship_box = _station(ShipBox, Vector3(-1.9, 0, 3.3))
+	journal = Find.new()
+	journal.position = Vector3(-1.9, 0, 3.3)
+	add_child(journal)
+	journal.build("grandpa")
 	crusher = _station(preload("res://scripts/base/crusher.gd"), Vector3(-4.6, 0, 1.6))
-	order_board = _station(OrderBoard, Vector3(2.0, 1.3, CABIN_Z + CABIN_D * 0.5 + LOG_R + 0.04))
 	spawn_point = to_global(Vector3(0.0, 0.1, 4.8))
 	spawn_yaw = atan2(-f.x, -f.z)
 

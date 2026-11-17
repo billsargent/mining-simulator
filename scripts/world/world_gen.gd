@@ -302,7 +302,7 @@ func _apply_pads(x: float, z: float, h: float) -> float:
 		var dz := z - p.y
 		var dd := dx * dx + dz * dz
 		if dd < p.z * p.z:
-			h = lerpf(h, p.w, 1.0 - smoothstep(p.z - 4.0, p.z, sqrt(dd)))
+			h = lerpf(h, p.w, 1.0 - smoothstep(p.z - maxf(4.0, p.z * 0.3), p.z, sqrt(dd)))
 	return h
 
 
@@ -551,6 +551,8 @@ func _make_sites_and_roads() -> void:
 	sites["base"] = _site_beside("Cabin Creek", 0.55, 1.0, 26.0)
 	sites["camp"] = _site_beside("Last Chance Creek", 0.4, -1.0, 24.0)
 	sites["mine"] = _site_beside("Rattlesnake Gulch", 0.55, -1.0, 52.0)
+	# The town sits on the valley road, east of where Cabin Creek comes in.
+	sites["town"] = _site_beside("Big Sable River", 0.51, 1.0, 66.0)
 	var total := FG * FG
 	f_bench.resize(total)
 	f_bench_h.resize(total)
@@ -598,10 +600,19 @@ func _make_sites_and_roads() -> void:
 		roads.append({"pts": path, "h": hs})
 		_stamp_band(path, hs, 2.6, 8.0, "road")
 	# Level pads for the cabin and landmarks (applied last, over roads).
-	for s in [["base", 13.0], ["camp", 10.0], ["mine", 6.0]]:
+	for s in [["base", 13.0], ["camp", 10.0], ["mine", 6.0], ["town", 34.0]]:
 		var site: Dictionary = sites[s[0]]
 		var pos: Vector2 = site["pos"]
 		var height := surface(pos.x, pos.y)
+		if s[0] == "town":
+			# The town is cut into the hillside at the level of the valley road in front of it.
+			var road: Dictionary = roads[1]
+			var rp: PackedVector2Array = road["pts"]
+			var near_i := 0
+			for i in rp.size():
+				if rp[i].distance_squared_to(pos) < rp[near_i].distance_squared_to(pos):
+					near_i = i
+			height = (road["h"] as PackedFloat32Array)[near_i] + 0.05
 		site["height"] = height
 		pads.append(Vector4(pos.x, pos.y, float(s[1]), height))
 	# Boulders in and beside the creeks (they trap gold just downstream).

@@ -5,6 +5,8 @@ extends RefCounted
 const SWEET_LO := 5.0
 const SWEET_HI := 8.0
 
+static var carpet_bonus := 0.0     # miner's moss: set by main.gd when the player owns it
+
 
 ## 0 = good flow, 1 = a bit off, 2 = losing gold
 static func zone(angle: float) -> int:
@@ -32,4 +34,6 @@ static func catch_chance(mass: float, angle: float, bonus: float = 0.0) -> float
 		steep_loss = 0.012
 	var steep := maxf(0.0, angle - SWEET_HI)
 	var shallow := maxf(0.0, SWEET_LO - angle)
-	return clampf(base + bonus - steep * steep_loss - shallow * 0.06, 0.05, 0.995)
+	# Moss mostly helps the small gold; big pieces were being caught anyway.
+	var carpet := carpet_bonus * (1.0 if mass < 0.004 else (0.5 if mass < 0.015 else 0.2))
+	return clampf(base + bonus + carpet - steep * steep_loss - shallow * 0.06, 0.05, 0.995)

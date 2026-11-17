@@ -5,6 +5,7 @@ extends StaticBody3D
 
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const Recovery = preload("res://scripts/machines/recovery.gd")
+const Claims = preload("res://scripts/core/claims.gd")
 const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -59,8 +60,21 @@ func _build() -> void:
 	pass
 
 
-## Why it can't run where it stands, or "" if it can.
+## Why it can't run where it stands for want of water, or "" if it can.
 func water_problem() -> String:
+	return ""
+
+
+## Why it can't run where it stands, or "" if it can: water first, then whose ground it is.
+func problem() -> String:
+	var w := water_problem()
+	if w != "":
+		return w
+	if not Claims.is_owned_at(global_position.x, global_position.z):
+		var c := Claims.at(global_position.x, global_position.z)
+		if c.is_empty():
+			return "this is public land, and machines only run on a claim you own"
+		return "%s isn't yours yet (the claims office in town sells it)" % c["name"]
 	return ""
 
 
@@ -81,13 +95,13 @@ func _update_visuals(_delta: float) -> void:
 	if _spray:
 		_spray.emitting = running and not hopper.is_empty()
 	if carried:
-		_marker_mat.albedo_color = Color(0.3, 0.9, 0.4, 0.16) if water_problem() == "" else Color(1.0, 0.55, 0.2, 0.16)
+		_marker_mat.albedo_color = Color(0.3, 0.9, 0.4, 0.16) if problem() == "" else Color(1.0, 0.55, 0.2, 0.16)
 
 
 # --- Processing -------------------------------------------------------------------
 
 func is_running() -> bool:
-	return not carried and loaded_on == null and water_problem() == ""
+	return not carried and loaded_on == null and problem() == ""
 
 
 ## Ride on a vehicle: parented to its cargo slot, not running, only hit by the "use" ray.
@@ -198,9 +212,9 @@ func interact(player) -> void:
 			hopper.append(inv.bucket.pop_front())
 			n += 1
 		var msg := "Dumped %d shovelful%s into the %s." % [n, "" if n == 1 else "s", display_name.to_lower()]
-		var problem := water_problem()
-		if problem != "":
-			msg += " It isn't running yet: " + problem + "."
+		var why := problem()
+		if why != "":
+			msg += " It isn't running yet: " + why + "."
 		player.hud.toast(msg)
 		player.on_machine_fed(self)
 	elif has_concentrate():
@@ -239,9 +253,9 @@ func _status_bb() -> String:
 		return ""
 	if loaded_on != null:
 		return "[color=#a0c8ff]On the %s[/color]" % str(loaded_on.display_name).to_lower()
-	var problem := water_problem()
-	if problem != "":
-		return "[color=#ffa060]Not running: %s[/color]" % problem
+	var why := problem()
+	if why != "":
+		return "[color=#ffa060]Not running: %s[/color]" % why
 	if not processes:
 		return "[color=#80dd80]Pumping[/color]"
 	if hopper.is_empty():

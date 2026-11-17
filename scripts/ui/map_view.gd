@@ -3,6 +3,7 @@ extends CanvasLayer
 ## vehicles, waypoints, and a dot for every test pan colored by how much gold it held.
 ## Left click drops a waypoint, right click removes the nearest one.
 
+const Claims = preload("res://scripts/core/claims.gd")
 const WorldGen = preload("res://scripts/world/world_gen.gd")
 
 const CELLS := 64                 # exploration grid (32 m cells)
@@ -235,12 +236,20 @@ func draw_icons(c: Control) -> void:
 		var mid := pts[pts.size() / 2]
 		if is_explored(mid.x, mid.y):
 			_text(c, font, mid * s + Vector2(6, -6), r["name"], 13, Color(0.12, 0.25, 0.4))
-	var places := [["base", "Grandpa's cabin", Color(0.75, 0.3, 0.1)], ["camp", "Last Chance camp", Color(0.4, 0.3, 0.2)],
+	for cl in Claims.list:
+		var mine_now: bool = Claims.is_owned(cl["id"])
+		var q: Vector2 = (cl["pos"] as Vector2) * s
+		var ring := Color(0.1, 0.5, 0.15) if mine_now else Color(0.45, 0.35, 0.2)
+		c.draw_arc(q, float(cl["radius"]) * s, 0.0, TAU, 48, ring, 2.5 if mine_now else 1.5)
+		if cl["id"] != "home":
+			var tag: String = cl["name"] if mine_now else "%s  $%d" % [cl["name"], cl["price"]]
+			_text(c, font, q + Vector2(-30, float(cl["radius"]) * s + 13), tag, 12, ring.darkened(0.2))
+	var places := [["base", "Grandpa's cabin", Color(0.75, 0.3, 0.1)], ["town", "Sable Crossing", Color(0.25, 0.2, 0.5)], ["camp", "Last Chance camp", Color(0.4, 0.3, 0.2)],
 		["mine", "Old mine", Color(0.3, 0.3, 0.3)]]
 	for pl in places:
 		var site: Dictionary = world.sites[pl[0]]
 		var pos: Vector2 = site["pos"]
-		if pl[0] == "base" or is_explored(pos.x, pos.y):
+		if pl[0] in ["base", "town"] or is_explored(pos.x, pos.y):
 			var q := pos * s
 			c.draw_rect(Rect2(q - Vector2(5, 5), Vector2(10, 10)), pl[2])
 			_text(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05))

@@ -39,6 +39,13 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Specimens (`inv.specimens`) drop now and then from vein chips and sell whole at the ship box. The crusher by hand frees 65% of the gold; the powered one from the order board frees all of it.
 - More screenshot views: `--inmine=rot|air|journal|read`, `--powered` (powered crusher at the cabin).
 
+## M5 additions (make a living)
+- `scripts/world/town.gd`: Sable Crossing on the valley road (site `"town"`, pad cut to road height). It holds the general store (`order_board.gd`, the catalog), the assay office (`ship_box.gd`, sells gold) and the claims office (`claims_office.gd`). The cabin no longer has the box or the board; it has Grandpa's journal (`find.gd` kind `"grandpa"`).
+- `scripts/core/claims.gd`: static list of claims and which you own (`Claims.owned` is the inventory's `claims` dict). `machine.problem()` = water problem, then claim check; use it instead of `water_problem()` for "can it run".
+- `scripts/core/market.gd`: gold price by day (`Market.day` set from day_night), and all sale values.
+- Small gear lives in `inv.gear` (classifier, bucket, sack, moss, detector); `main._apply_gear()` applies moss to `Recovery.carpet_bonus`.
+- Screenshot views: `--view=town|store|claims|assay|journal`.
+
 ## Code layout
 - `scripts/main.gd`: builds the world, spawns machines, save/load, and the test harness flags above.
 - `scripts/world/`: `valley.gd` (creek, bars, bench), `terrain.gd` (deformable chunked heightmap with a bedrock floor; `dig`, `flatten`, `restore`), `scatter.gd` (rocks, trees, grass; exclusion zones).
