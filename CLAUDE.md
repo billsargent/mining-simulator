@@ -1,6 +1,6 @@
-# Paystreak (working title)
+﻿# Paystreak (working title)
 
-First-person open-world gold prospecting game in **Godot 4.7 / GDScript** (Jolt physics). Design spec: `DESIGN.md` — read its "Simplicity rules" before adding any mechanic.
+First-person open-world gold prospecting game in **Godot 4.7 / GDScript** (Jolt physics). Design spec: `DESIGN.md` â€” read its "Simplicity rules" before adding any mechanic.
 
 Keep all scenes and resources text-based, and build in code where practical so everything can be changed without the Godot editor.
 
@@ -29,6 +29,15 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Gotcha: fields that are interpolated separately (weight and height) must both be valid past the edge of a band, or blending punches pits (see `_stamp_band`).
 - Gotcha: packed arrays passed to functions are copies; write results back to the member.
 - The old `valley.gd` / `terrain.gd` are gone; ignore mentions of them below.
+
+## M4 additions (mine)
+- `scripts/mine/mine.gd`: carvable rock on a 0.5 m grid (cells: rock, open, two vein kinds), chunked meshes with smooth normals, `chip()`. It sits far below the world; `main.enter_mine()` / `exit_mine()` teleport and switch `day_night.underground`.
+- Ore goes in `inv.ore`; `scripts/base/crusher.gd` turns it into a jar to pan. Screenshot inside with `--inmine=adit|vein|junction|lower`.
+- Gotcha: with culling off, faces must still be wound toward the open side or they light as back faces.
+- `scripts/mine/hazards.gd`: lamp battery, bad air (lower drift, west end), rotten ground (south drift; `mine.fill()` caves it in). All of it obeys `Settings.hazards` (`scripts/core/settings.gd`, stored in `user://settings.cfg`, toggled in the Esc menu; not read or written when any flag is given).
+- `scripts/mine/find.gd`: journal, old map, note. Reading one calls `mark_place` on the `"game"` group, which puts the richest spot of a creek (`main.rich_spot`) on the map (`map_view.marks`).
+- Specimens (`inv.specimens`) drop now and then from vein chips and sell whole at the ship box. The crusher by hand frees 65% of the gold; the powered one from the order board frees all of it.
+- More screenshot views: `--inmine=rot|air|journal|read`, `--powered` (powered crusher at the cabin).
 
 ## Code layout
 - `scripts/main.gd`: builds the world, spawns machines, save/load, and the test harness flags above.

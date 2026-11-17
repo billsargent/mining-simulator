@@ -1,7 +1,10 @@
 extends CanvasLayer
-## Esc menu: resume, save, start over, quit.
+## Esc menu: resume, save, mine hazards on or off, start over, quit.
+
+const Settings = preload("res://scripts/core/settings.gd")
 
 var main
+var _hazard_btn: Button
 var _new_btn: Button
 var _save_btn: Button
 var _confirm_t := 0.0
@@ -39,10 +42,12 @@ func _ready() -> void:
 	box.add_child(title)
 	_button(box, "Resume", _resume)
 	_save_btn = _button(box, "Save game", _save)
+	_hazard_btn = _button(box, "", _toggle_hazards)
+	_show_hazards()
 	_new_btn = _button(box, "Start a new game", _new_game)
 	_button(box, "Save and quit", _quit)
 	var note := Label.new()
-	note.text = "The game also saves itself every minute and when you quit."
+	note.text = "Mine hazards are lamp batteries, bad air and cave-ins. Turn them off to explore the mine in peace.\n\nThe game also saves itself every minute and when you quit."
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.add_theme_font_size_override("font_size", 14)
 	note.modulate = Color(1, 1, 1, 0.7)
@@ -93,6 +98,16 @@ func _resume() -> void:
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	main.player.grace()
+
+
+func _toggle_hazards() -> void:
+	Settings.hazards = not Settings.hazards
+	Settings.save_file()
+	_show_hazards()
+
+
+func _show_hazards() -> void:
+	_hazard_btn.text = "Mine hazards: %s" % ("On" if Settings.hazards else "Off")
 
 
 func _save() -> void:

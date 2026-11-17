@@ -1,6 +1,6 @@
 extends StaticBody3D
-## The gold buyer's pickup box. Bars sell by their pure gold content; nuggets sell to collectors
-## at a premium.
+## The gold buyer's pickup box. Bars sell by their pure gold content; nuggets and specimens
+## (gold in quartz, left whole) sell to collectors at a premium.
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -14,6 +14,10 @@ static func bar_value(bar: Dictionary) -> int:
 
 static func nugget_value(m: float) -> int:
 	return roundi(m * PRICE_PER_GRAM * (1.5 + minf(m, 2.0) * 0.25))
+
+
+static func specimen_value(grams: float) -> int:
+	return roundi(grams * PRICE_PER_GRAM * 2.5)
 
 
 func build() -> void:
@@ -33,18 +37,30 @@ func _total(inv) -> int:
 		total += bar_value(b)
 	for m in inv.nuggets:
 		total += nugget_value(m)
+	for g in inv.specimens:
+		total += specimen_value(g)
 	return total
+
+
+func _empty(inv) -> bool:
+	return inv.bars.is_empty() and inv.nuggets.is_empty() and inv.specimens.is_empty()
+
+
+func _list(inv) -> String:
+	var parts := PackedStringArray()
+	for item in [[inv.bars.size(), "bar"], [inv.nuggets.size(), "nugget"], [inv.specimens.size(), "specimen"]]:
+		if item[0] > 0:
+			parts.append("%d %s%s" % [item[0], item[1], "" if item[0] == 1 else "s"])
+	return ", ".join(parts)
 
 
 func prompt(player) -> String:
 	var inv = player.inv
 	var t := "[b]Gold buyer's box[/b]"
-	if inv.bars.is_empty() and inv.nuggets.is_empty():
+	if _empty(inv):
 		t += "\nMelt your gold into bars at the furnace, then ship them here."
 	else:
-		t += "\n%s Ship %d bar%s and %d nugget%s for $%d" % [
-			Hud.key("E"), inv.bars.size(), "" if inv.bars.size() == 1 else "s",
-			inv.nuggets.size(), "" if inv.nuggets.size() == 1 else "s", _total(inv)]
+		t += "\n%s Ship %s for $%d" % [Hud.key("E"), _list(inv), _total(inv)]
 	if inv.vial_grams() > 0.0:
 		t += "\n(Loose gold has to be melted into a bar first.)"
 	return t
@@ -52,15 +68,14 @@ func prompt(player) -> String:
 
 func interact(player) -> void:
 	var inv = player.inv
-	if inv.bars.is_empty() and inv.nuggets.is_empty():
+	if _empty(inv):
 		player.hud.toast("Nothing to ship yet. Melt your gold into a bar at the furnace.")
 		return
 	var total := _total(inv)
-	var msg := "Shipped %d bar%s" % [inv.bars.size(), "" if inv.bars.size() == 1 else "s"]
-	if not inv.nuggets.is_empty():
-		msg += " and %d nugget%s" % [inv.nuggets.size(), "" if inv.nuggets.size() == 1 else "s"]
+	var msg := "Shipped " + _list(inv)
 	inv.money += total
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
+	inv.specimens = PackedFloat32Array()
 	inv.complete_goal("sold")
 	player.hud.toast("%s:  +$%d" % [msg, total], Color(0.6, 1.0, 0.6), 5.0)

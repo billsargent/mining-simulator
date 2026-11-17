@@ -8,6 +8,7 @@ const Terrain = preload("res://scripts/world/world_terrain.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
+const Settings = preload("res://scripts/core/settings.gd")
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.8
@@ -24,6 +25,7 @@ const DIG_DEPTH := 0.15
 const DIG_RADIUS := 0.85
 const FEED_RANGE := 4.5
 const PAN_PITCH := -0.22
+const LAMP_ENERGY := 5.0
 const WALK_HELP := "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
 const DRIVE_HELP := "W/S drive   A/D steer   Space brake   V camera   R flip upright   E get out   M map   Esc menu"
 
@@ -33,6 +35,9 @@ var hud: Hud
 var inv := Inventory.new()
 var clock := ""
 var map_open := false
+var mine = null                       # the mine interior, while you're inside it
+var lamp_charge := 1.0                # headlamp battery; only runs down underground, with hazards on
+var air := 1.0                        # how much breath you have left in bad air
 
 var camera: Camera3D
 var pan_view: PanView = null
@@ -72,9 +77,10 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_lamp = SpotLight3D.new()
-	_lamp.spot_range = 24.0
-	_lamp.spot_angle = 30.0
-	_lamp.light_energy = 2.2
+	_lamp.spot_range = 32.0
+	_lamp.spot_angle = 42.0
+	_lamp.spot_attenuation = 0.6
+	_lamp.light_energy = LAMP_ENERGY
 	_lamp.light_color = Color(1.0, 0.96, 0.88)
 	_lamp.position = Vector3(0.1, 0.05, 0.0)
 	_lamp.visible = false
@@ -97,6 +103,14 @@ func headlamp_on() -> bool:
 
 func set_headlamp(on: bool) -> void:
 	_lamp.visible = on
+
+
+## A battery that is nearly flat gives a weak glow; it never goes fully dark.
+func apply_lamp() -> void:
+	var f := 1.0
+	if mine != null and Settings.hazards:
+		f = lerpf(0.1, 1.0, clampf(lamp_charge / 0.2, 0.0, 1.0))
+	_lamp.light_energy = LAMP_ENERGY * f
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -156,6 +170,8 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, target.x, ACCEL * delta)
 	velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
 	move_and_slide()
+	if hud.note_open() and Vector2(velocity.x, velocity.z).length() > 1.0:
+		hud.hide_note()
 	if pan_view != null or map_open:
 		return
 	if carrying != null:
@@ -164,8 +180,14 @@ func _physics_process(delta: float) -> void:
 	_aim = _look_hit()
 	_target = _find_interactable(_aim)
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if mine != null and global_position.y < mine.global_position.y - 3.0:
+		global_position = mine.spawn_point()      # safety net: never fall out of the mine
+		velocity = Vector3.ZERO
 	if captured and Input.is_action_pressed("dig") and _dig_cd <= 0.0:
-		_try_dig()
+		if mine != null:
+			_try_chip()
+		else:
+			_try_dig()
 	if Input.is_action_just_pressed("interact") and _interact_block <= 0.0:
 		if _target != null:
 			_target.interact(self)
@@ -263,6 +285,45 @@ func _try_dig() -> void:
 		inv.bucket.append(dirt)
 	if res["at_bedrock"]:
 		hud.toast("Down to bedrock. This is where the gold settles.", Color(1.0, 0.9, 0.6))
+	refresh_hud()
+
+
+func _aiming_at_rock() -> bool:
+	if _aim.is_empty():
+		return false
+	var col: Object = _aim.get("collider")
+	return col is Node and (col as Node).is_in_group("mine")
+
+
+## Chip the mine wall. Plain rock just breaks away; quartz vein goes in the ore sack.
+func _try_chip() -> void:
+	if not _aiming_at_rock():
+		return
+	# Hammer and chisel, miner's pick, rotary hammer: each is quicker and bites deeper.
+	var tier: int = clampi(inv.tool_tier, 0, 2)
+	_dig_cd = [0.95, 0.6, 0.28][tier]
+	if inv.ore.size() >= Inventory.ORE_CAPACITY:
+		hud.toast("Your ore sack is full. Take it home to the ore crusher.")
+		return
+	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"], [1.0, 1.45, 1.8][tier])
+	_animate_dig()
+	var vein: int = int(res["vein_a"]) + int(res["vein_b"])
+	if vein > 0:
+		var expected := 1.1 * float(res["vein_a"]) + 2.4 * float(res["vein_b"])
+		var pieces := int(expected) + (1 if randf() < expected - int(expected) else 0)
+		var chunk := Paydirt.new()
+		chunk.black_sand = 0.25
+		for i in pieces:
+			chunk.add_gold(deposits.piece(true))
+		inv.ore.append(chunk)
+		inv.complete_goal("ore")
+		hud.toast("Quartz ore into the sack  (%d/%d)" % [inv.ore.size(), Inventory.ORE_CAPACITY], Color(1.0, 0.95, 0.8), 1.5)
+		# Now and then a piece comes away with gold showing in the quartz: a specimen.
+		var rich: bool = int(res["vein_b"]) > 0
+		if randf() < (0.12 if rich else 0.06):
+			inv.add_specimen(randf_range(0.15, 0.6) * (1.4 if rich else 1.0))
+			hud.toast("A specimen: gold showing in the quartz! Collectors pay extra for these. Ship it whole.", Color(1.0, 0.85, 0.3), 6.0)
+	mine.hazards.on_chip(_aim["position"])
 	refresh_hud()
 
 
@@ -392,7 +453,7 @@ func _try_pan() -> void:
 	if inv.bucket.is_empty() and inv.cons.is_empty():
 		hud.toast("Nothing to pan. Dig some gravel first (left mouse).")
 		return
-	if not _near_water():
+	if mine != null or not _near_water():
 		hud.toast("You need water to pan. Get to the edge of a creek, or use the wash tub at the cabin.")
 		return
 	if not inv.bucket.is_empty():
@@ -487,7 +548,7 @@ func _near_water() -> bool:
 
 
 func _in_water() -> bool:
-	return terrain.water_depth(global_position.x, global_position.z) > 0.15
+	return mine == null and terrain.water_depth(global_position.x, global_position.z) > 0.15
 
 
 # --- HUD and visuals ---------------------------------------------------------------
@@ -497,6 +558,10 @@ func _update_prompt() -> void:
 		hud.set_prompt(_target.prompt(self))
 		return
 	var parts := PackedStringArray()
+	if mine != null:
+		var tool_name: String = ["hammer and chisel", "miner's pick", "rotary hammer"][clampi(inv.tool_tier, 0, 2)]
+		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() else "")
+		return
 	if _near_water():
 		if not inv.bucket.is_empty():
 			parts.append(Hud.key("E") + " Pan a shovelful")
@@ -514,7 +579,12 @@ func _update_prompt() -> void:
 
 
 func refresh_hud() -> void:
-	hud.set_status(inv, BUCKET_CAPACITY, clock)
+	var extra := PackedStringArray()
+	if mine != null and Settings.hazards:
+		extra.append("Headlamp battery   %d%%" % roundi(lamp_charge * 100.0))
+		if air < 0.995:
+			extra.append("Air   %d%%   get back to good air!" % roundi(air * 100.0))
+	hud.set_status(inv, BUCKET_CAPACITY, clock, extra)
 	hud.set_goal(inv.next_goal())
 
 

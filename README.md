@@ -13,7 +13,8 @@ See [DESIGN.md](DESIGN.md) for the full plan and roadmap.
 | M1 Color in the pan: digging, gold that sinks to bedrock, panning | Done |
 | M2 Bucket to bar: sluice, high banker and pump, cabin cleanup, furnace, selling, saving | Done |
 | M3 Go far: 2×2 km world, ATV and pickup, map and waypoints, day and night | In review |
-| M4 to M7: old mines, economy and claims, the full world, polish | Planned |
+| M4 Into the dark: an old mine to chip at, tool tiers, hazards (can be switched off), ore crushing, specimens, journals | In review |
+| M5 to M7: economy and claims, the full world, polish | Planned |
 
 ## Running it
 

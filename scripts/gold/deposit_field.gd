@@ -88,6 +88,11 @@ func shovelful(x: float, z: float, top_h: float, bottom_h: float, bedrock_h: flo
 	return p
 
 
+## One piece of gold with the usual mix of sizes (used for vein ore too).
+func piece(allow_nugget: bool) -> float:
+	return _piece_mass(allow_nugget)
+
+
 func _piece_mass(allow_nugget: bool) -> float:
 	var u := _rng.randf()
 	if u < 0.55:

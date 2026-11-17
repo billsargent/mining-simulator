@@ -1,10 +1,18 @@
 extends StaticBody3D
-## Order board on the cabin wall. For now it sells one thing: a high banker with a water pump.
+## Order board on the cabin wall: a short catalog. Mouse wheel picks an item, E orders it.
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 
-const HIGH_BANKER_PRICE := 350
+## id, name, price, what it does
+const ITEMS = [
+	["high_banker", "High banker and water pump", 350, "work the banks away from the water"],
+	["pick", "Miner's pick", 150, "chips rock faster and deeper than the hammer and chisel"],
+	["rotary", "Rotary hammer", 600, "tears through rock; needs the miner's pick first"],
+	["crusher", "Powered rock crusher", 400, "frees all the gold in your ore; pounding by hand loses about a third"],
+]
+
+var _sel := 0
 
 
 func build() -> void:
@@ -17,28 +25,65 @@ func build() -> void:
 	Parts.collider(self, Vector3(0.9, 0.65, 0.12), Vector3.ZERO)
 
 
+func _owned(inv, id: String) -> bool:
+	match id:
+		"high_banker":
+			return inv.high_banker_bought
+		"pick":
+			return inv.tool_tier >= 1
+		"rotary":
+			return inv.tool_tier >= 2
+		"crusher":
+			return inv.crusher_powered
+	return false
+
+
 func prompt(player) -> String:
 	var inv = player.inv
-	var t := "[b]Order board[/b]"
-	if inv.high_banker_bought:
-		t += "\nMore gear is coming in the next build."
-		return t
-	t += "\n%s Order a high banker and water pump: $%d   (you have $%d)" % [Hud.key("E"), HIGH_BANKER_PRICE, inv.money]
-	if inv.money < HIGH_BANKER_PRICE:
-		t += "\n[color=#ffa060]$%d more to go[/color]" % (HIGH_BANKER_PRICE - inv.money)
-	return t
+	var t := "[b]Order board[/b]   you have $%d" % inv.money
+	for i in ITEMS.size():
+		var it: Array = ITEMS[i]
+		var line := "%s  $%d" % [it[1], it[2]]
+		if _owned(inv, it[0]):
+			line = "[color=#80a080]%s  (owned)[/color]" % it[1]
+		if i == _sel:
+			line = "[color=#ffd866]> " + line + "[/color]  [color=#c0c0c0]" + str(it[3]) + "[/color]"
+		t += "\n" + line
+	return t + "\n" + Hud.key("Wheel") + " Choose     " + Hud.key("E") + " Order"
+
+
+func scroll(_player, dir: int) -> void:
+	_sel = posmod(_sel - dir, ITEMS.size())
 
 
 func interact(player) -> void:
 	var inv = player.inv
-	if inv.high_banker_bought:
-		player.hud.toast("You already have the high banker. More gear is coming in the next build.")
+	var it: Array = ITEMS[_sel]
+	var id: String = it[0]
+	var price: int = it[2]
+	if _owned(inv, id):
+		player.hud.toast("You already have the %s." % str(it[1]).to_lower())
 		return
-	if inv.money < HIGH_BANKER_PRICE:
-		player.hud.toast("Not enough money yet: $%d more to go." % (HIGH_BANKER_PRICE - inv.money))
+	if id == "rotary" and inv.tool_tier < 1:
+		player.hud.toast("Order the miner's pick first.")
 		return
-	inv.money -= HIGH_BANKER_PRICE
-	inv.high_banker_bought = true
-	inv.complete_goal("high_banker")
-	get_tree().call_group("game", "deliver", "high_banker")
-	player.hud.toast("Delivered to the shed: a high banker and a water pump.", Color(0.6, 1.0, 0.6), 5.0)
+	if inv.money < price:
+		player.hud.toast("Not enough money yet: $%d more to go." % (price - inv.money))
+		return
+	inv.money -= price
+	match id:
+		"high_banker":
+			inv.high_banker_bought = true
+			inv.complete_goal("high_banker")
+			get_tree().call_group("game", "deliver", "high_banker")
+			player.hud.toast("Delivered to the shed: a high banker and a water pump.", Color(0.6, 1.0, 0.6), 5.0)
+		"pick":
+			inv.tool_tier = 1
+			player.hud.toast("A miner's pick. Rock chips faster and deeper now.", Color(0.6, 1.0, 0.6), 5.0)
+		"crusher":
+			inv.crusher_powered = true
+			get_tree().call_group("game", "deliver", "crusher")
+			player.hud.toast("A powered rock crusher, set up by the wash tub. It frees all the gold in your ore.", Color(0.6, 1.0, 0.6), 5.0)
+		"rotary":
+			inv.tool_tier = 2
+			player.hud.toast("A rotary hammer. Hold left mouse on the rock and it tears through.", Color(0.6, 1.0, 0.6), 5.0)

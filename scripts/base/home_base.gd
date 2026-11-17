@@ -25,6 +25,7 @@ var furnace
 var wash_tub
 var ship_box
 var order_board
+var crusher
 
 
 ## The site is already levelled by the world generator.
@@ -40,6 +41,7 @@ func build(terrain, site: Vector3, facing: Vector3) -> void:
 	wash_tub = _station(WashTub, Vector3(-3.6, 0, 2.4))
 	furnace = _station(Furnace, Vector3(4.4, 0, 0.4))
 	ship_box = _station(ShipBox, Vector3(-1.9, 0, 3.3))
+	crusher = _station(preload("res://scripts/base/crusher.gd"), Vector3(-4.6, 0, 1.6))
 	order_board = _station(OrderBoard, Vector3(2.0, 1.3, CABIN_Z + CABIN_D * 0.5 + LOG_R + 0.04))
 	spawn_point = to_global(Vector3(0.0, 0.1, 4.8))
 	spawn_yaw = atan2(-f.x, -f.z)
