@@ -27,6 +27,7 @@ const DIG_RADIUS := 0.85
 const FEED_RANGE := 4.5
 const PAN_PITCH := -0.22
 const LAMP_ENERGY := 5.0
+var lamp_boost := 1.0                 # 1.8 with the bright headlamp from the store
 
 var terrain: Terrain
 var deposits: DepositField
@@ -110,7 +111,7 @@ func apply_lamp() -> void:
 	var f := 1.0
 	if mine != null and Settings.hazards:
 		f = lerpf(0.1, 1.0, clampf(lamp_charge / 0.2, 0.0, 1.0))
-	_lamp.light_energy = LAMP_ENERGY * f
+	_lamp.light_energy = LAMP_ENERGY * lamp_boost * f
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -170,6 +171,8 @@ func _physics_process(delta: float) -> void:
 			speed *= WADE_FACTOR
 		if carrying != null:
 			speed *= CARRY_FACTOR
+			if carrying.has_method("carry_factor"):
+				speed *= carrying.carry_factor()
 		target = dir * speed
 		if Input.is_action_just_pressed("jump") and is_on_floor():
 			velocity.y = JUMP_VELOCITY
@@ -209,7 +212,9 @@ func _physics_process(delta: float) -> void:
 				return
 		else:
 			_try_pan()
-	if Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
+	if Input.is_action_just_pressed("carry") and _target != null and _target.has_method("toggle_lights"):
+		_target.toggle_lights()
+	elif Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
 		start_carry(_target)
 		return
 	if Input.is_action_just_pressed("dump"):
@@ -629,6 +634,14 @@ func refresh_hud() -> void:
 			extra.append("Air   %d%%   get back to good air!" % roundi(air * 100.0))
 	hud.set_status(inv, inv.bucket_capacity(), clock, extra)
 	hud.set_goal(inv.next_goal())
+
+
+## The bright headlamp from the store: stronger, reaching further, a little wider.
+func set_bright_lamp(bright: bool) -> void:
+	lamp_boost = 1.8 if bright else 1.0
+	_lamp.spot_range = 60.0 if bright else 32.0
+	_lamp.spot_angle = 48.0 if bright else 42.0
+	_lamp.light_energy = LAMP_ENERGY * lamp_boost
 
 
 func _make_shovel() -> Node3D:
