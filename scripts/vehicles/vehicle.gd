@@ -84,7 +84,8 @@ func setup(t) -> void:
 		_slot_nodes.append(n)
 		cargo.append(null)
 	_cam = Camera3D.new()
-	_cam.fov = 75.0
+	_cam.fov = Settings.fov
+	_cam.add_to_group("fov_camera")
 	_cam.near = 0.05
 	_cam.far = 1500.0
 	_cam.position = head
@@ -131,8 +132,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and not _chase_on:
 		var motion := event as InputEventMouseMotion
-		_yaw = clampf(_yaw - motion.relative.x * 0.0022, -1.9, 1.9)
-		_pitch = clampf(_pitch - motion.relative.y * 0.0022, -1.1, 0.9)
+		_yaw = clampf(_yaw - motion.relative.x * Settings.look_speed(), -1.9, 1.9)
+		_pitch = clampf(_pitch - motion.relative.y * Settings.look_speed() * (-1.0 if Settings.invert_y else 1.0), -1.1, 0.9)
 
 
 func _physics_process(delta: float) -> void:

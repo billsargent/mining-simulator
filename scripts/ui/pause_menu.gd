@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Esc menu: resume, save, mine hazards on or off, start over, quit.
+## Esc menu: resume, save, settings, mine hazards on or off, start over, quit.
 
 const Settings = preload("res://scripts/core/settings.gd")
 
@@ -9,6 +9,11 @@ var _new_btn: Button
 var _save_btn: Button
 var _confirm_t := 0.0
 var _saved_t := 0.0
+var _main_panel: Control
+var _opt_panel: Control
+var _key_btns := {}
+var _waiting := ""         # action waiting for a new key
+var _quality_btn: Button
 
 
 func _ready() -> void:
@@ -31,6 +36,7 @@ func _ready() -> void:
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	root.add_child(panel)
+	_main_panel = panel
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(340, 0)
 	box.add_theme_constant_override("separation", 12)
@@ -42,6 +48,7 @@ func _ready() -> void:
 	box.add_child(title)
 	_button(box, "Resume", _resume)
 	_save_btn = _button(box, "Save game", _save)
+	_button(box, "Settings", _open_settings)
 	_hazard_btn = _button(box, "", _toggle_hazards)
 	_show_hazards()
 	_new_btn = _button(box, "Start a new game", _new_game)
@@ -52,6 +59,7 @@ func _ready() -> void:
 	note.add_theme_font_size_override("font_size", 14)
 	note.modulate = Color(1, 1, 1, 0.7)
 	box.add_child(note)
+	_build_settings(root, sb)
 	visible = false
 
 
@@ -65,9 +73,23 @@ func _button(box: VBoxContainer, text: String, action: Callable) -> Button:
 	return b
 
 
+func _input(event: InputEvent) -> void:
+	if _waiting == "" or not visible:
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var code: int = event.physical_keycode
+		if code != KEY_ESCAPE:
+			Settings.rebind(_waiting, code)
+		_waiting = ""
+		_show_keys()
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_mouse"):
-		if not visible and main.map_view.visible:
+		if visible and _opt_panel.visible:
+			_close_settings()
+		elif not visible and main.map_view.visible:
 			main.map_view.toggle()
 		elif visible:
 			_resume()
@@ -88,6 +110,7 @@ func _process(delta: float) -> void:
 
 
 func open() -> void:
+	_close_settings()
 	visible = true
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -98,6 +121,7 @@ func _resume() -> void:
 	get_tree().paused = false
 	Settings.capture_mouse()
 	main.player.grace()
+	main.player.hud.set_help(Settings.help(main.player.driving != null))
 
 
 func _toggle_hazards() -> void:
@@ -127,3 +151,139 @@ func _new_game() -> void:
 func _quit() -> void:
 	main.save_now()
 	get_tree().quit()
+
+
+# --- Settings -----------------------------------------------------------------------------------
+
+func _build_settings(root: Control, sb: StyleBoxFlat) -> void:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	root.add_child(panel)
+	_opt_panel = panel
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(520, 560)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 8)
+	scroll.add_child(box)
+	_heading(box, "Graphics")
+	_quality_btn = _row_button(box, "Quality", _cycle_quality)
+	_slider(box, "Render scale", 50, 100, Settings.render_scale * 100.0, "%d%%", func(v: float) -> void:
+		Settings.render_scale = v / 100.0)
+	_check(box, "Full screen", Settings.fullscreen, func(on: bool) -> void: Settings.fullscreen = on)
+	_check(box, "Vertical sync", Settings.vsync, func(on: bool) -> void: Settings.vsync = on)
+	_slider(box, "Field of view", 60, 100, Settings.fov, "%d", func(v: float) -> void: Settings.fov = v)
+	_heading(box, "Mouse")
+	_slider(box, "Sensitivity", 20, 300, Settings.mouse_sens * 100.0, "%d%%", func(v: float) -> void:
+		Settings.mouse_sens = v / 100.0)
+	_check(box, "Invert look up and down", Settings.invert_y, func(on: bool) -> void: Settings.invert_y = on)
+	_heading(box, "Keys  (click one, then press the new key; Esc cancels)")
+	for a in Settings.ACTIONS:
+		var action: String = a[0]
+		_key_btns[action] = _row_button(box, a[1], func() -> void:
+			_waiting = action
+			_show_keys())
+	_button(box, "Reset keys", func() -> void:
+		Settings.reset_binds()
+		_show_keys())
+	_button(box, "Back", _close_settings)
+	_show_quality()
+	_show_keys()
+	panel.visible = false
+
+
+func _heading(box: VBoxContainer, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 18)
+	l.modulate = Color(1.0, 0.85, 0.4)
+	box.add_child(l)
+
+
+func _row(box: VBoxContainer, text: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(200, 0)
+	l.add_theme_font_size_override("font_size", 16)
+	row.add_child(l)
+	box.add_child(row)
+	return row
+
+
+func _row_button(box: VBoxContainer, text: String, action: Callable) -> Button:
+	var b := Button.new()
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 32)
+	b.pressed.connect(action)
+	_row(box, text).add_child(b)
+	return b
+
+
+func _slider(box: VBoxContainer, text: String, lo: float, hi: float, value: float, fmt: String, set_fn: Callable) -> void:
+	var row := _row(box, text)
+	var s := HSlider.new()
+	s.min_value = lo
+	s.max_value = hi
+	s.step = 1
+	s.value = value
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(s)
+	var l := Label.new()
+	l.custom_minimum_size = Vector2(56, 0)
+	l.text = fmt % value
+	row.add_child(l)
+	s.value_changed.connect(func(v: float) -> void:
+		l.text = fmt % v
+		set_fn.call(v)
+		_apply())
+
+
+func _check(box: VBoxContainer, text: String, on: bool, set_fn: Callable) -> void:
+	var c := CheckBox.new()
+	c.button_pressed = on
+	c.text = "On" if on else "Off"
+	c.toggled.connect(func(v: bool) -> void:
+		c.text = "On" if v else "Off"
+		set_fn.call(v)
+		_apply())
+	_row(box, text).add_child(c)
+
+
+func _apply() -> void:
+	Settings.apply_graphics(get_tree())
+	Settings.save_file()
+
+
+func _cycle_quality() -> void:
+	Settings.quality = (Settings.quality + 1) % 3
+	_show_quality()
+	_apply()
+
+
+func _show_quality() -> void:
+	_quality_btn.text = Settings.QUALITY_NAMES[Settings.quality]
+
+
+func _show_keys() -> void:
+	for action in _key_btns:
+		_key_btns[action].text = "Press a key..." if action == _waiting else Settings.key_name(Settings.key_for(action))
+
+
+func _open_settings() -> void:
+	_main_panel.visible = false
+	_opt_panel.visible = true
+
+
+func _close_settings() -> void:
+	_waiting = ""
+	if _opt_panel != null:
+		_opt_panel.visible = false
+		_main_panel.visible = true
+		_show_keys()

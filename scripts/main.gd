@@ -526,19 +526,7 @@ func _apply_gear() -> void:
 
 
 func _setup_input() -> void:
-	_bind_key("move_forward", KEY_W)
-	_bind_key("move_back", KEY_S)
-	_bind_key("move_left", KEY_A)
-	_bind_key("move_right", KEY_D)
-	_bind_key("sprint", KEY_SHIFT)
-	_bind_key("jump", KEY_SPACE)
-	_bind_key("interact", KEY_E)
-	_bind_key("carry", KEY_F)
-	_bind_key("dump", KEY_R)
-	_bind_key("pan_dump", KEY_Q)
-	_bind_key("camera", KEY_V)
-	_bind_key("map", KEY_M)
-	_bind_key("headlamp", KEY_L)
+	Settings.apply_binds()
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
@@ -597,6 +585,8 @@ func _build_environment() -> void:
 	day_night.moon = moon
 	add_child(day_night)
 	day_night.apply()
+	Settings.attach(env, sun)
+	Settings.apply_graphics(get_tree())
 
 
 ## Invisible walls at the edge of the world.
@@ -810,8 +800,10 @@ func _run_harness() -> void:
 			var cp: Vector3 = base.crusher.global_position
 			var from: Vector3 = cp + base.global_basis.z * 2.4 + base.global_basis.x * 0.8
 			_place_player(from, atan2(from.x - cp.x, from.z - cp.z), -0.3)
-		if _opts.has("menu"):
+		if _opts.has("menu") or _opts.has("settings"):
 			menu.open()
+			if _opts.has("settings"):
+				menu._open_settings()
 		for i in 30:
 			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -1569,6 +1561,21 @@ func _selftest() -> void:
 		await get_tree().physics_frame
 	Input.action_release("move_forward")
 	_check("walking moves the player", start.distance_to(player.global_position) > 1.5)
+
+	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
+	Settings.rebind("interact", KEY_G)
+	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
+	_check("prompts show the new key", Hud.key("E").contains("G"))
+	Settings.rebind("interact", KEY_F)
+	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)
+	Settings.reset_binds()
+	_check("keys reset", Settings.key_for("interact") == KEY_E and Settings.key_for("carry") == KEY_F and Hud.key("E").contains("E"))
+	Settings.quality = 0
+	Settings.apply_graphics(get_tree())
+	_check("low quality turns off shadows", not day_night.sun.shadow_enabled)
+	Settings.quality = 2
+	Settings.apply_graphics(get_tree())
+	_check("high quality has shadows", day_night.sun.shadow_enabled)
 	print("SELFTEST complete: %d failed" % _failures)
 
 

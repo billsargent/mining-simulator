@@ -17,7 +17,6 @@ const WADE_FACTOR := 0.55
 const CARRY_FACTOR := 0.8
 const ACCEL := 30.0
 const JUMP_VELOCITY := 4.4
-const MOUSE_SENS := 0.0022
 const EYE_HEIGHT := 1.65
 const REACH := 3.2
 const BUCKET_CAPACITY := 6            # 10 with the big bucket
@@ -27,8 +26,6 @@ const DIG_RADIUS := 0.85
 const FEED_RANGE := 4.5
 const PAN_PITCH := -0.22
 const LAMP_ENERGY := 5.0
-const WALK_HELP := "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
-const DRIVE_HELP := "W/S drive   A/D steer   Space brake   V camera   R flip upright   E get out   M map   Esc menu"
 
 var terrain: Terrain
 var deposits: DepositField
@@ -72,7 +69,8 @@ func _ready() -> void:
 	floor_snap_length = 0.35
 	camera = Camera3D.new()
 	camera.position.y = EYE_HEIGHT
-	camera.fov = 75.0
+	camera.fov = Settings.fov
+	camera.add_to_group("fov_camera")
 	camera.near = 0.02
 	camera.far = 1500.0
 	add_child(camera)
@@ -121,8 +119,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if captured and pan_view == null and _look_grace <= 0.0:
 			var motion := event as InputEventMouseMotion
-			rotate_y(-motion.relative.x * MOUSE_SENS)
-			camera.rotation.x = clampf(camera.rotation.x - motion.relative.y * MOUSE_SENS, -1.5, 1.5)
+			rotate_y(-motion.relative.x * Settings.look_speed())
+			camera.rotation.x = clampf(camera.rotation.x - motion.relative.y * Settings.look_speed() * (-1.0 if Settings.invert_y else 1.0), -1.5, 1.5)
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		var mb := event as InputEventMouseButton
 		if not captured:
@@ -255,7 +253,7 @@ func begin_driving(vehicle) -> void:
 	_col.disabled = true
 	_shovel.visible = false
 	velocity = Vector3.ZERO
-	hud.set_help(DRIVE_HELP)
+	hud.set_help(Settings.help(true))
 	inv.complete_goal("drive")
 
 
@@ -269,7 +267,7 @@ func end_driving(spot: Vector3, yaw: float) -> void:
 	velocity = Vector3.ZERO
 	camera.make_current()
 	_interact_block = 0.3
-	hud.set_help(WALK_HELP)
+	hud.set_help(Settings.help(false))
 	hud.set_prompt("")
 	grace()
 

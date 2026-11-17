@@ -4,6 +4,7 @@ extends CanvasLayer
 
 const PanSim = preload("res://scripts/panning/pan_sim.gd")
 const Compass = preload("res://scripts/ui/compass.gd")
+const Settings = preload("res://scripts/core/settings.gd")
 
 var compass: Compass
 var _prompt: RichTextLabel
@@ -24,7 +25,7 @@ var _note_text: RichTextLabel
 
 ## A key name formatted for prompts, e.g. key("E") -> [E] in yellow.
 static func key(k: String) -> String:
-	return "[color=#ffd866][lb]%s[rb][/color]" % k
+	return "[color=#ffd866][lb]%s[rb][/color]" % Settings.prompt_key(k)
 
 
 func _ready() -> void:
@@ -123,7 +124,7 @@ func _ready() -> void:
 	root.add_child(_note_box)
 
 	_help = _label(16)
-	_help.text = "WASD move   Shift sprint   Space jump   LMB dig   E use / pan   F carry   Wheel adjust   R dump bucket   M map   L headlamp   Esc menu"
+	_help.text = Settings.help(false)
 	_help.modulate = Color(1, 1, 1, 0.75)
 	_anchor(_help, Vector4(0, 1, 1, 1), Vector4(16, -36, -16, -10))
 	root.add_child(_help)
