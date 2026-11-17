@@ -120,6 +120,7 @@ func build_visuals() -> void:
 	var bark := StandardMaterial3D.new()
 	bark.albedo_color = Color(0.3, 0.22, 0.16)
 	bark.roughness = 0.95
+	Tex.dress_as(bark, "logs", 1.6, Color(0.3, 0.22, 0.16))
 	var needles := StandardMaterial3D.new()
 	needles.albedo_color = Color(0.22, 0.32, 0.16)
 	needles.vertex_color_use_as_albedo = true
@@ -169,6 +170,7 @@ func build_visuals() -> void:
 	rock_mat.uv1_triplanar = true
 	rock_mat.uv1_scale = Vector3(0.7, 0.7, 0.7)
 	rock_mat.roughness = 0.88
+	Tex.dress_as(rock_mat, "boulder", 0.8, Color(0.55, 0.53, 0.5))
 	var blocks := {}
 	for r: Vector2i in _rocks:
 		var data: PackedFloat32Array = _rocks[r]
