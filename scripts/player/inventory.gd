@@ -1,5 +1,6 @@
 extends RefCounted
 ## Everything the prospector owns, plus the step-by-step goals for this build.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
 
@@ -164,6 +165,7 @@ func complete_goal(id: String) -> bool:
 	if goals_done.has(id):
 		return false
 	goals_done[id] = true
+	Sfx.play("goal", null, -6.0)
 	return true
 
 

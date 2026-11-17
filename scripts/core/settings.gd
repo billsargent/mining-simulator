@@ -25,6 +25,8 @@ static var quality := 2             # 0 low, 1 medium, 2 high
 static var render_scale := 1.0
 static var fullscreen := false
 static var vsync := true
+static var volume := 0.8
+static var music_volume := 0.6
 static var binds := {}              # action -> physical keycode, only where changed
 
 static var _env: Environment
@@ -51,6 +53,8 @@ static func _defaults() -> void:
 	render_scale = 1.0
 	fullscreen = false
 	vsync = true
+	volume = 0.8
+	music_volume = 0.6
 	binds = {}
 
 
@@ -69,6 +73,8 @@ static func load_file() -> void:
 	render_scale = clampf(cfg.get_value("graphics", "render_scale", 1.0), 0.5, 1.0)
 	fullscreen = cfg.get_value("graphics", "fullscreen", false)
 	vsync = cfg.get_value("graphics", "vsync", true)
+	volume = clampf(cfg.get_value("audio", "volume", 0.8), 0.0, 1.0)
+	music_volume = clampf(cfg.get_value("audio", "music", 0.6), 0.0, 1.0)
 	var b = cfg.get_value("controls", "binds", {})
 	binds = b if b is Dictionary else {}
 
@@ -86,6 +92,8 @@ static func save_file() -> void:
 	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.set_value("graphics", "fullscreen", fullscreen)
 	cfg.set_value("graphics", "vsync", vsync)
+	cfg.set_value("audio", "volume", volume)
+	cfg.set_value("audio", "music", music_volume)
 	cfg.save(PATH)
 
 
@@ -188,6 +196,13 @@ static func apply_graphics(tree: SceneTree) -> void:
 ## How far around you grass grows: the biggest cost after shadows.
 static func grass_radius() -> float:
 	return [32.0, 45.0, 60.0][quality]
+
+
+static func apply_audio() -> void:
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(volume, 0.0001)))
+	var mb := AudioServer.get_bus_index("Music")
+	if mb >= 0:
+		AudioServer.set_bus_volume_db(mb, linear_to_db(maxf(music_volume, 0.0001)))
 
 
 static func look_speed() -> float:

@@ -1,6 +1,7 @@
 extends CharacterBody3D
 ## The prospector: first-person movement, digging, panning, carrying and hauling equipment,
 ## driving, and a headlamp.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const PanView = preload("res://scripts/panning/pan_view.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
@@ -289,7 +290,9 @@ func _try_dig() -> void:
 		return
 	var dirt := deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"])
 	_animate_dig()
+	Sfx.play("dig", p)
 	if machine != null:
+		Sfx.play("pour", machine.global_position, -4.0)
 		machine.feed(dirt)
 		hud.toast("Into the %s hopper  (%d/%d)" % [machine.display_name.to_lower(), machine.hopper.size(), machine.hopper_capacity], Color(0.75, 0.9, 1.0), 1.2)
 		on_machine_fed(machine)
@@ -319,6 +322,7 @@ func _try_chip() -> void:
 		return
 	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"], [1.0, 1.45, 1.8][tier])
 	_animate_dig()
+	Sfx.play("chip", _aim["position"], 0.0, [1.0, 0.9, 1.15][tier])
 	var vein: int = int(res["vein_a"]) + int(res["vein_b"])
 	if vein > 0:
 		var expected := 1.1 * float(res["vein_a"]) + 2.4 * float(res["vein_b"])
@@ -357,6 +361,7 @@ func _dump_bucket() -> void:
 	if inv.bucket.is_empty():
 		return
 	inv.bucket.clear()
+	Sfx.play("dump", global_position)
 	hud.toast("Dumped the bucket.")
 	refresh_hud()
 
@@ -455,7 +460,8 @@ func on_machine_fed(machine) -> void:
 		inv.complete_goal("hb_running")
 
 
-func on_cleaned_out(_machine) -> void:
+func on_cleaned_out(machine) -> void:
+	Sfx.play("pour", machine.global_position)
 	inv.complete_goal("cleaned")
 
 
@@ -480,6 +486,7 @@ func _try_pan() -> void:
 func start_panning(dirt, source: String = "bucket") -> void:
 	_pan_dirt = dirt
 	_pan_source = source
+	Sfx.play("splash", null, -4.0)
 	pan_view = PanView.new()
 	pan_view.setup(dirt, hud)
 	camera.add_child(pan_view)
@@ -527,6 +534,8 @@ Good showing! That's how you read a creek: look for where the water slows."
 			inv.log_sample(src.x, src.z, grams)
 	if not lost.is_empty():
 		msg += "   (%d washed out)" % lost.size()
+	if not kept.is_empty():
+		Sfx.play("clink", null, -10.0 if biggest < 0.05 else -4.0, 1.4)
 	if biggest >= Inventory.NUGGET_MASS:
 		msg += "\nA nugget! %.2f g" % biggest
 	elif biggest >= 0.05:

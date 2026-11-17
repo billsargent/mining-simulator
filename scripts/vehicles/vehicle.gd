@@ -7,6 +7,7 @@ extends RigidBody3D
 
 const Settings = preload("res://scripts/core/settings.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
+const Sfx = preload("res://scripts/core/sfx.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 
 const MU := 1.0
@@ -136,8 +137,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - motion.relative.y * Settings.look_speed() * (-1.0 if Settings.invert_y else 1.0), -1.1, 0.9)
 
 
+var _engine_snd: AudioStreamPlayer3D
+
+
 func _physics_process(delta: float) -> void:
 	_enter_block -= delta
+	_engine_sound()
 	if driver != null:
 		_driver_controls()
 	elif not freeze:
@@ -148,6 +153,23 @@ func _physics_process(delta: float) -> void:
 	if freeze:
 		return
 	_drive(delta)
+
+
+## Idle when someone sits in it; revs up with speed and throttle.
+func _engine_sound() -> void:
+	if kind == "trailer":
+		return
+	if _engine_snd == null:
+		_engine_snd = Sfx.loop_on(self, "engine", 7.0)
+	var on := driver != null
+	var speed := linear_velocity.length()
+	var throttle := absf(Input.get_axis("move_back", "move_forward")) if on and not driver.map_open else 0.0
+	var pitch := 0.8 + clampf(speed / maxf(top_speed, 1.0), 0.0, 1.2) * 1.1 + throttle * 0.25
+	if kind == "truck":
+		pitch *= 0.75
+	elif kind == "excavator":
+		pitch *= 0.6
+	Sfx.run_loop(_engine_snd, on, -8.0 + throttle * 4.0, pitch)
 
 
 ## Whether the wheels hold the vehicle still when nothing drives it (a towed trailer rolls).

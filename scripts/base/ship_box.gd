@@ -2,6 +2,7 @@ extends StaticBody3D
 ## The gold buyer's counter at the assay office in town. Bars sell by their pure gold content
 ## at the day's price; nuggets and specimens (gold in quartz, left whole) sell to collectors
 ## at a premium.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -65,6 +66,7 @@ func interact(player) -> void:
 	var total := _total(inv)
 	var msg := "Sold " + _list(inv)
 	inv.money += total
+	Sfx.play("sell", null, -4.0)
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
 	inv.specimens = PackedFloat32Array()

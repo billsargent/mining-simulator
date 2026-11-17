@@ -1,6 +1,7 @@
 extends StaticBody3D
 ## The claims board at the claims office in town. Mouse wheel picks a claim, E buys it.
 ## Every claim is drawn on your map, so you can go and test-pan it before you pay.
+const Sfx = preload("res://scripts/core/sfx.gd")
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -50,6 +51,7 @@ func interact(player) -> void:
 		player.hud.toast("Not enough money yet: $%d more to go." % (price - inv.money))
 		return
 	inv.money -= price
+	Sfx.play("sell", null, -4.0)
 	inv.claims[c["id"]] = true
 	inv.complete_goal("claim")
 	player.hud.toast("%s on %s is yours. Your machines will run there now." % [c["name"], c["river"]], Color(0.6, 1.0, 0.6), 6.0)
