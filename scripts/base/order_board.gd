@@ -19,6 +19,7 @@ const ITEMS = [
 	["dredge", "Suction dredge, with permit", 2500, "floats in deeper water and sucks up the river bottom by itself"],
 	["dry_washer", "Dry washer", 1100, "recovers gold with air instead of water, for the desert washes"],
 	["trailer", "Flatbed trailer", 800, "the pickup tows it; room for two more machines"],
+	["camp", "Camp tent", 300, "pitch it anywhere: sleep there, and fast travel between your camps and the cabin (up to 3)"],
 ]
 const SHOWN := 5
 
@@ -45,6 +46,8 @@ func _owned(inv, id: String) -> bool:
 			return inv.tool_tier >= 2
 		"crusher":
 			return inv.crusher_powered
+	if id == "camp":
+		return int(inv.gear.get("camps", 0)) >= 3
 	return inv.gear.has(id)
 
 
@@ -108,6 +111,9 @@ func interact(player) -> void:
 		"crusher":
 			inv.crusher_powered = true
 			said = "A powered rock crusher, set up by the wash tub at your cabin."
+		"camp":
+			inv.gear["camps"] = int(inv.gear.get("camps", 0)) + 1
+			said = "A camp tent, by the shed at your cabin. Carry it (F) wherever you want a camp and set it down."
 		"trailer":
 			inv.gear["trailer"] = true
 			said = "A flatbed trailer, parked behind the pickup at your cabin. Back the pickup up to it and hitch it (E)."

@@ -1,8 +1,11 @@
 extends StaticBody3D
-## Grandpa's bunk: sleep until morning (the game saves).
+## Grandpa's bunk: sleep until morning (the game saves), or travel to one of your camps.
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
+const Travel = preload("res://scripts/core/travel.gd")
+
+var _sel := 0
 
 
 func build() -> void:
@@ -17,9 +20,33 @@ func build() -> void:
 	Parts.collider(self, Vector3(0.95, 0.55, 1.95), Vector3(0, 0.275, 0))
 
 
+func _main():
+	return get_tree().get_first_node_in_group("game")
+
+
 func prompt(_player) -> String:
-	return "[b]Grandpa's bunk[/b]\n%s Sleep until morning (saves the game)" % Hud.key("E")
+	var main = _main()
+	var here: Vector3 = main.base.spawn_point
+	var n := Travel.count(main, here)
+	_sel = clampi(_sel, 0, n - 1)
+	var t := "[b]Grandpa's bunk[/b]" + Travel.menu(main, here, "Sleep until morning (saves the game)", _sel)
+	if n > 1:
+		return t + "\n" + Hud.key("Wheel") + " Choose     " + Hud.key("E") + " Go"
+	return t + "\n" + Hud.key("E") + " Sleep"
 
 
-func interact(_player) -> void:
-	get_tree().call_group("game", "sleep")
+func scroll(_player, dir: int) -> void:
+	var main = _main()
+	_sel = posmod(_sel - dir, Travel.count(main, main.base.spawn_point))
+
+
+func interact(player) -> void:
+	var main = _main()
+	if _sel == 0:
+		main.sleep()
+	else:
+		var dests := Travel.destinations(main, main.base.spawn_point)
+		if _sel <= dests.size():
+			var d: Array = dests[_sel - 1]
+			main.fast_travel(d[1], d[0])
+		_sel = 0
