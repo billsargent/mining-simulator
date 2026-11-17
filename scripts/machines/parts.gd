@@ -1,10 +1,18 @@
 extends RefCounted
 ## Helpers for building simple props in code: shared materials, boxes, cylinders, hoses, signs.
-## Placeholder art until real models arrive.
+## Materials wear CC0 photo textures (assets/textures) laid on by triplanar mapping, tinted to
+## each material's chosen color.
 
 const Tex = preload("res://scripts/util/tex.gd")
 
 static var _mats := {}
+
+## Materials that wear a photo texture: key -> [texture set, repeats per metre, normal strength].
+const DRESS := {
+	"roof": ["roof", 0.8, 1.0], "old_roof": ["planks", 0.6, 1.0], "iron": ["rust", 1.0, 0.6],
+	"stone": ["boulder", 1.2, 1.0], "rock_face": ["rock", 0.5, 1.0], "rust": ["rust", 1.0, 1.0],
+	"tire": ["rough_wood", 2.0, 0.4], "track": ["rust", 2.0, 0.8],
+}
 
 
 static func mat(key: String, color: Color, roughness: float = 0.8, metallic: float = 0.0) -> StandardMaterial3D:
@@ -15,6 +23,10 @@ static func mat(key: String, color: Color, roughness: float = 0.8, metallic: flo
 	m.roughness = roughness
 	m.metallic = metallic
 	_mats[key] = m
+	if DRESS.has(key):
+		var d: Array = DRESS[key]
+		Tex.dress_as(m, d[0], d[1], color, d[2])
+		m.roughness = maxf(roughness, 0.6)
 	return m
 
 
@@ -23,17 +35,39 @@ static func aluminum() -> StandardMaterial3D:
 
 
 static func steel() -> StandardMaterial3D:
-	return mat("steel", Color(0.22, 0.23, 0.24), 0.5, 0.7)
+	if _mats.has("steel"):
+		return _mats["steel"]
+	var m := mat("steel", Color(0.22, 0.23, 0.24), 0.5, 0.7)
+	Tex.dress_as(m, "rust", 1.2, Color(0.24, 0.23, 0.22), 0.7)
+	m.metallic = 0.6
+	return m
 
 
+## Painted metal: the chosen color, with the dents and wear of old steel showing through.
 static func paint(key: String, color: Color) -> StandardMaterial3D:
-	return mat("paint_" + key, color, 0.45)
+	if _mats.has("paint_" + key):
+		return _mats["paint_" + key]
+	var m := mat("paint_" + key, color, 0.45)
+	if key != "pvc":
+		m.normal_enabled = true
+		m.normal_texture = Tex.photo("rust", "normal")
+		m.normal_scale = 0.35
+		m.roughness_texture = Tex.photo("rust", "rough")
+		m.roughness = 0.75
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3.ONE * 1.2
+	return m
 
 
 static func galvanized() -> StandardMaterial3D:
 	if _mats.has("galvanized"):
 		return _mats["galvanized"]
 	var m := mat("galvanized", Color(0.62, 0.64, 0.66), 0.45, 0.8)
+	m.normal_enabled = true
+	m.normal_texture = Tex.photo("iron", "normal")
+	m.normal_scale = 0.4
+	m.uv1_triplanar = true
+	m.uv1_scale = Vector3.ONE * 1.5
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
@@ -60,28 +94,28 @@ static func gravel() -> StandardMaterial3D:
 	if _mats.has("gravel"):
 		return _mats["gravel"]
 	var m := mat("gravel", Color(0.5, 0.46, 0.4), 0.95)
-	m.albedo_texture = Tex.noise(0.2, 44, 128)
-	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(3, 3, 3)
+	Tex.dress_as(m, "gravel", 1.5, Color(0.5, 0.46, 0.4))
+	if m.albedo_texture == null:
+		m.albedo_texture = Tex.noise(0.2, 44, 128)
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3(3, 3, 3)
 	return m
 
 
+## Wood: sawn planks for boards, doors and furniture; rough hewn wood for logs, timbers and poles.
 static func wood(key: String = "wood", color: Color = Color(0.46, 0.33, 0.21)) -> StandardMaterial3D:
 	if _mats.has(key):
 		return _mats[key]
 	var m := mat(key, color, 0.85)
-	var n := FastNoiseLite.new()
-	n.seed = 7
-	n.frequency = 0.08
-	n.fractal_octaves = 3
-	var t := NoiseTexture2D.new()
-	t.width = 256
-	t.height = 256
-	t.seamless = true
-	t.noise = n
-	m.albedo_texture = t
-	m.uv1_triplanar = true
-	m.uv1_scale = Vector3(1.5, 0.3, 1.5)
+	var rough := false
+	for w in ["log", "timber", "pole", "skid", "stump", "post"]:
+		if key.contains(w):
+			rough = true
+	Tex.dress_as(m, "rough_wood" if rough else "planks", 0.9 if rough else 0.7, color)
+	if m.albedo_texture == null:
+		m.albedo_texture = Tex.noise(0.08, 7, 256)
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3(1.5, 0.3, 1.5)
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 

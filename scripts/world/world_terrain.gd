@@ -59,6 +59,15 @@ func setup(w: WorldGen) -> void:
 	_material.shader = load("res://shaders/terrain.gdshader")
 	_material.set_shader_parameter("noise_large", Tex.noise(0.01, 31, 512))
 	_material.set_shader_parameter("noise_detail", Tex.noise(0.04, 32, 512))
+	# Photo textures for the ground (CC0, assets/textures). The shader tints each one by its
+	# average color, so the region colors still decide the look.
+	for t in ["grass", "rock", "dirt", "gravel", "sand"]:
+		var tex := Tex.photo(t, "albedo")
+		if tex != null:
+			_material.set_shader_parameter("tex_" + t, tex)
+			var a := Tex.average(t)
+			_material.set_shader_parameter("avg_" + t, Vector3(a.r, a.g, a.b))
+	_material.set_shader_parameter("use_photos", Tex.photo("grass", "albedo") != null)
 	var centers := PackedVector2Array()
 	for r in WorldGen.REGIONS:
 		centers.append((r[1] as Vector2) * WorldGen.LAYOUT)
