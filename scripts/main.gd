@@ -1709,6 +1709,26 @@ func _selftest() -> void:
 	xb.pressed = true
 	Settings.note_input(xb)
 	_check("prompts show controller buttons", Settings.using_pad and Hud.key("E").contains("X") and Settings.help(false).contains("Right stick"))
+	Settings.rebind_pad("interact", JOY_BUTTON_Y)
+	var ybtn := InputMap.action_get_events("interact").filter(func(e): return e is InputEventJoypadButton)
+	_check("a controller button can be moved", ybtn.size() == 1 and ybtn[0].button_index == JOY_BUTTON_Y
+		and Settings.pad_button_for("carry") == JOY_BUTTON_X and Hud.key("E").contains("Y"))
+	Settings.reset_pad()
+	_check("controller buttons reset", Settings.pad_button_for("interact") == JOY_BUTTON_X and Settings.pad_button_for("carry") == JOY_BUTTON_Y)
+	map_view.toggle()
+	map_view.cursor = Vector2(1000, 1000)
+	var wp_before: int = map_view.waypoints.size()
+	var abtn := InputEventJoypadButton.new()
+	abtn.button_index = JOY_BUTTON_A
+	abtn.pressed = true
+	map_view._unhandled_input(abtn)
+	_check("the controller drops a waypoint on the map", map_view.waypoints.size() == wp_before + 1)
+	var xbtn2 := InputEventJoypadButton.new()
+	xbtn2.button_index = JOY_BUTTON_X
+	xbtn2.pressed = true
+	map_view._unhandled_input(xbtn2)
+	map_view.toggle()
+	_check("and removes it", map_view.waypoints.size() == wp_before and not map_view.visible)
 	var kb := InputEventKey.new()
 	kb.physical_keycode = KEY_W
 	kb.pressed = true

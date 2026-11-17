@@ -13,6 +13,8 @@ var _main_panel: Control
 var _opt_panel: Control
 var _key_btns := {}
 var _waiting := ""         # action waiting for a new key
+var _waiting_pad := ""     # action waiting for a new controller button
+var _pad_btns := {}
 var _quality_btn: Button
 
 
@@ -80,6 +82,14 @@ func _input(event: InputEvent) -> void:
 		main.player.refresh_hud()
 		if visible and Settings.using_pad and get_viewport().gui_get_focus_owner() == null:
 			_focus_first()
+	if _waiting_pad != "" and visible and event is InputEventJoypadButton and event.pressed:
+		var b: int = (event as InputEventJoypadButton).button_index
+		if b != JOY_BUTTON_START:
+			Settings.rebind_pad(_waiting_pad, b)
+		_waiting_pad = ""
+		_show_keys()
+		get_viewport().set_input_as_handled()
+		return
 	if _waiting == "" or not visible:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -211,6 +221,18 @@ func _build_settings(root: Control, sb: StyleBoxFlat) -> void:
 	_button(box, "Reset keys", func() -> void:
 		Settings.reset_binds()
 		_show_keys())
+	_heading(box, "Controller  (select one, then press the new button; Menu cancels)")
+	for action in Settings.PAD_REBINDABLE:
+		var label := ""
+		for a in Settings.ACTIONS:
+			if a[0] == action:
+				label = a[1]
+		_pad_btns[action] = _row_button(box, label, func() -> void:
+			_waiting_pad = action
+			_show_keys())
+	_button(box, "Reset controller", func() -> void:
+		Settings.reset_pad()
+		_show_keys())
 	_button(box, "Back", _close_settings)
 	_show_quality()
 	_show_keys()
@@ -295,6 +317,8 @@ func _show_quality() -> void:
 func _show_keys() -> void:
 	for action in _key_btns:
 		_key_btns[action].text = "Press a key..." if action == _waiting else Settings.key_name(Settings.key_for(action))
+	for action in _pad_btns:
+		_pad_btns[action].text = "Press a button..." if action == _waiting_pad else Settings.pad_name(action)
 
 
 func _open_settings() -> void:
@@ -305,6 +329,7 @@ func _open_settings() -> void:
 
 func _close_settings() -> void:
 	_waiting = ""
+	_waiting_pad = ""
 	if _opt_panel != null:
 		_opt_panel.visible = false
 		_main_panel.visible = true

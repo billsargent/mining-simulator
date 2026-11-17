@@ -28,6 +28,7 @@ static var vsync := true
 static var volume := 0.8
 static var music_volume := 0.6
 static var binds := {}              # action -> physical keycode, only where changed
+static var pad_binds := {}          # action -> controller button, only where changed
 
 static var _env: Environment
 static var _sun: DirectionalLight3D
@@ -56,6 +57,7 @@ static func _defaults() -> void:
 	volume = 0.8
 	music_volume = 0.6
 	binds = {}
+	pad_binds = {}
 
 
 static func load_file() -> void:
@@ -77,6 +79,8 @@ static func load_file() -> void:
 	music_volume = clampf(cfg.get_value("audio", "music", 0.6), 0.0, 1.0)
 	var b = cfg.get_value("controls", "binds", {})
 	binds = b if b is Dictionary else {}
+	var pb = cfg.get_value("controls", "pad_binds", {})
+	pad_binds = pb if pb is Dictionary else {}
 
 
 static func save_file() -> void:
@@ -87,6 +91,7 @@ static func save_file() -> void:
 	cfg.set_value("controls", "mouse_sens", mouse_sens)
 	cfg.set_value("controls", "invert_y", invert_y)
 	cfg.set_value("controls", "binds", binds)
+	cfg.set_value("controls", "pad_binds", pad_binds)
 	cfg.set_value("graphics", "fov", fov)
 	cfg.set_value("graphics", "quality", quality)
 	cfg.set_value("graphics", "render_scale", render_scale)
@@ -174,9 +179,65 @@ static func pad_look(delta: float) -> Vector2:
 	return s
 
 
+## Controller actions the player may move to another button, in menu order. The pan's dump
+## follows the bucket's dump; the sticks, triggers, D-pad and Menu stay put.
+const PAD_REBINDABLE := ["jump", "interact", "carry", "dump", "sprint", "camera", "map", "headlamp"]
+const BUTTON_NAMES := {
+	JOY_BUTTON_A: "A", JOY_BUTTON_B: "B", JOY_BUTTON_X: "X", JOY_BUTTON_Y: "Y",
+	JOY_BUTTON_LEFT_SHOULDER: "LB", JOY_BUTTON_RIGHT_SHOULDER: "RB", JOY_BUTTON_BACK: "View",
+	JOY_BUTTON_START: "Menu", JOY_BUTTON_LEFT_STICK: "LS", JOY_BUTTON_RIGHT_STICK: "RS",
+	JOY_BUTTON_DPAD_UP: "D-pad up", JOY_BUTTON_DPAD_DOWN: "D-pad down",
+	JOY_BUTTON_DPAD_LEFT: "D-pad left", JOY_BUTTON_DPAD_RIGHT: "D-pad right",
+}
+
+
+static func button_name(b: int) -> String:
+	return BUTTON_NAMES.get(b, "Button %d" % b)
+
+
+## The controller button an action is on now (-1 for a stick or trigger).
+static func pad_button_for(action: String) -> int:
+	if action == "pan_dump":
+		action = "dump"
+	if pad_binds.has(action):
+		return int(pad_binds[action])
+	var m := _pad_map()
+	if m.has(action) and not (m[action][0] is Array):
+		return int(m[action][0])
+	return -1
+
+
 static func pad_name(action: String) -> String:
+	var b := pad_button_for(action)
+	if b >= 0:
+		return button_name(b)
 	var m := _pad_map()
 	return m[action][1] if m.has(action) else ""
+
+
+## Move a controller action to another button. A button another action uses is swapped onto it.
+static func rebind_pad(action: String, button: int) -> void:
+	var old := pad_button_for(action)
+	for a in PAD_REBINDABLE:
+		if a != action and pad_button_for(a) == button:
+			_set_pad_bind(a, old)
+	_set_pad_bind(action, button)
+	apply_binds()
+	save_file()
+
+
+static func _set_pad_bind(action: String, button: int) -> void:
+	var m := _pad_map()
+	if int(m[action][0]) == button:
+		pad_binds.erase(action)
+	else:
+		pad_binds[action] = button
+
+
+static func reset_pad() -> void:
+	pad_binds = {}
+	apply_binds()
+	save_file()
 
 
 ## Put every rebindable action on its current key, and every action on its controller button.
@@ -186,13 +247,12 @@ static func apply_binds() -> void:
 	for action in m:
 		if not InputMap.has_action(action):
 			InputMap.add_action(action)
-		var has_pad := false
 		for e in InputMap.action_get_events(action):
 			if e is InputEventJoypadButton or e is InputEventJoypadMotion:
-				has_pad = true
-		if has_pad:
-			continue
+				InputMap.action_erase_event(action, e)
 		var spec = m[action][0]
+		if not (spec is Array):
+			spec = pad_button_for(action)
 		if spec is Array:
 			var jm := InputEventJoypadMotion.new()
 			jm.axis = spec[0]
@@ -311,9 +371,12 @@ static func look_speed() -> float:
 ## The key help line at the bottom of the screen, on the player's current keys.
 static func help(driving: bool) -> String:
 	if using_pad:
+		var n := func(a: String) -> String: return pad_name(a)
 		if driving:
-			return "Left stick drive / steer   A brake   RS camera   B flip upright   X get out   View map   Menu pause"
-		return "Left stick move   Right stick look   LS sprint   A jump   RT dig   X use / pan   Y carry   D-pad adjust   B dump bucket   View map   D-pad up headlamp   Menu pause"
+			return "Left stick drive / steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Menu pause" % [
+				n.call("jump"), n.call("camera"), n.call("dump"), n.call("interact"), n.call("map")]
+		return "Left stick move   Right stick look   %s sprint   %s jump   RT dig   %s use / pan   %s carry   D-pad adjust   %s dump bucket   %s map   %s headlamp   Menu pause" % [
+			n.call("sprint"), n.call("jump"), n.call("interact"), n.call("carry"), n.call("dump"), n.call("map"), n.call("headlamp")]
 	var k := func(a: String) -> String: return key_name(key_for(a))
 	var move: String = k.call("move_forward") + k.call("move_left") + k.call("move_back") + k.call("move_right")
 	if driving:
