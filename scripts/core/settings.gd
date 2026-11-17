@@ -185,6 +185,11 @@ static func apply_graphics(tree: SceneTree) -> void:
 		cam.fov = fov
 
 
+## How far around you grass grows: the biggest cost after shadows.
+static func grass_radius() -> float:
+	return [32.0, 45.0, 60.0][quality]
+
+
 static func look_speed() -> float:
 	return 0.0022 * mouse_sens
 
