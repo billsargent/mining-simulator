@@ -28,6 +28,7 @@ static var vsync := true
 static var volume := 0.8
 static var music_volume := 0.6
 static var binds := {}              # action -> physical keycode, only where changed
+static var pad_binds := {}          # action -> controller button, only where changed
 
 static var _env: Environment
 static var _sun: DirectionalLight3D
@@ -41,7 +42,7 @@ static func capture_mouse() -> void:
 
 ## True while the game should treat the mouse as captured. Test runs always count as captured.
 static func mouse_captured() -> bool:
-	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or not grab_mouse
+	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or not grab_mouse or using_pad
 
 
 static func _defaults() -> void:
@@ -56,6 +57,7 @@ static func _defaults() -> void:
 	volume = 0.8
 	music_volume = 0.6
 	binds = {}
+	pad_binds = {}
 
 
 static func load_file() -> void:
@@ -77,6 +79,8 @@ static func load_file() -> void:
 	music_volume = clampf(cfg.get_value("audio", "music", 0.6), 0.0, 1.0)
 	var b = cfg.get_value("controls", "binds", {})
 	binds = b if b is Dictionary else {}
+	var pb = cfg.get_value("controls", "pad_binds", {})
+	pad_binds = pb if pb is Dictionary else {}
 
 
 static func save_file() -> void:
@@ -87,6 +91,7 @@ static func save_file() -> void:
 	cfg.set_value("controls", "mouse_sens", mouse_sens)
 	cfg.set_value("controls", "invert_y", invert_y)
 	cfg.set_value("controls", "binds", binds)
+	cfg.set_value("controls", "pad_binds", pad_binds)
 	cfg.set_value("graphics", "fov", fov)
 	cfg.set_value("graphics", "quality", quality)
 	cfg.set_value("graphics", "render_scale", render_scale)
@@ -114,8 +119,162 @@ static func key_name(code: int) -> String:
 	return OS.get_keycode_string(code)
 
 
-## Put every rebindable action on its current key.
+## Xbox-layout controller buttons: action -> [event, label]. Fixed; not rebindable.
+## An event is a JoyButton, or [axis, direction] for a stick or trigger.
+static func _pad_map() -> Dictionary:
+	return {
+		"move_forward": [[JOY_AXIS_LEFT_Y, -1.0], "Left stick"], "move_back": [[JOY_AXIS_LEFT_Y, 1.0], "Left stick"],
+		"move_left": [[JOY_AXIS_LEFT_X, -1.0], "Left stick"], "move_right": [[JOY_AXIS_LEFT_X, 1.0], "Left stick"],
+		"sprint": [JOY_BUTTON_LEFT_STICK, "LS"], "jump": [JOY_BUTTON_A, "A"],
+		"interact": [JOY_BUTTON_X, "X"], "carry": [JOY_BUTTON_Y, "Y"],
+		"dump": [JOY_BUTTON_B, "B"], "pan_dump": [JOY_BUTTON_B, "B"],
+		"camera": [JOY_BUTTON_RIGHT_STICK, "RS"], "map": [JOY_BUTTON_BACK, "View"],
+		"headlamp": [JOY_BUTTON_DPAD_UP, "D-pad up"], "toggle_mouse": [JOY_BUTTON_START, "Menu"],
+		"dig": [[JOY_AXIS_TRIGGER_RIGHT, 1.0], "RT"], "pan_wash": [[JOY_AXIS_TRIGGER_LEFT, 1.0], "LT"],
+		"scroll_up": [JOY_BUTTON_DPAD_RIGHT, "D-pad"], "scroll_down": [JOY_BUTTON_DPAD_LEFT, "D-pad"],
+	}
+
+
+## True while the player is using a controller (the last input came from one). Prompts and the
+## help line then show controller buttons.
+static var using_pad := false
+const PAD_LOOK := 2.8           # right stick look speed, radians a second at full tilt
+const STICK_DEAD := 0.18
+
+
+## Watch each input to tell whether the player is on the controller or the keyboard and mouse.
+## Returns true when that changed.
+static func note_input(event: InputEvent) -> bool:
+	var pad := using_pad
+	if event is InputEventJoypadButton:
+		pad = true
+	elif event is InputEventJoypadMotion:
+		if absf((event as InputEventJoypadMotion).axis_value) > 0.5:
+			pad = true
+	elif event is InputEventKey or event is InputEventMouseButton:
+		pad = false
+	elif event is InputEventMouseMotion and (event as InputEventMouseMotion).relative.length() > 4.0:
+		pad = false
+	if pad == using_pad:
+		return false
+	using_pad = pad
+	return true
+
+
+## The controller to read sticks from: the first one connected (Windows may not number it 0).
+static func pad_device() -> int:
+	var pads := Input.get_connected_joypads()
+	return pads[0] if not pads.is_empty() else 0
+
+
+## The right stick, with a dead zone, curved for fine aim; zero when no controller is in use.
+static func stick_look() -> Vector2:
+	var d := pad_device()
+	var v := Vector2(Input.get_joy_axis(d, JOY_AXIS_RIGHT_X), Input.get_joy_axis(d, JOY_AXIS_RIGHT_Y))
+	var l := v.length()
+	if l < STICK_DEAD:
+		return Vector2.ZERO
+	var m := minf((l - STICK_DEAD) / (1.0 - STICK_DEAD), 1.0)
+	return v / l * m * m
+
+
+## Radians to turn this frame from the right stick.
+static func pad_look(delta: float) -> Vector2:
+	var s := stick_look() * PAD_LOOK * mouse_sens * delta
+	if invert_y:
+		s.y = -s.y
+	return s
+
+
+## Controller actions the player may move to another button, in menu order. The pan's dump
+## follows the bucket's dump; the sticks, triggers, D-pad and Menu stay put.
+const PAD_REBINDABLE := ["jump", "interact", "carry", "dump", "sprint", "camera", "map", "headlamp"]
+const BUTTON_NAMES := {
+	JOY_BUTTON_A: "A", JOY_BUTTON_B: "B", JOY_BUTTON_X: "X", JOY_BUTTON_Y: "Y",
+	JOY_BUTTON_LEFT_SHOULDER: "LB", JOY_BUTTON_RIGHT_SHOULDER: "RB", JOY_BUTTON_BACK: "View",
+	JOY_BUTTON_START: "Menu", JOY_BUTTON_LEFT_STICK: "LS", JOY_BUTTON_RIGHT_STICK: "RS",
+	JOY_BUTTON_DPAD_UP: "D-pad up", JOY_BUTTON_DPAD_DOWN: "D-pad down",
+	JOY_BUTTON_DPAD_LEFT: "D-pad left", JOY_BUTTON_DPAD_RIGHT: "D-pad right",
+}
+
+
+static func button_name(b: int) -> String:
+	return BUTTON_NAMES.get(b, "Button %d" % b)
+
+
+## The controller button an action is on now (-1 for a stick or trigger).
+static func pad_button_for(action: String) -> int:
+	if action == "pan_dump":
+		action = "dump"
+	if pad_binds.has(action):
+		return int(pad_binds[action])
+	var m := _pad_map()
+	if m.has(action) and not (m[action][0] is Array):
+		return int(m[action][0])
+	return -1
+
+
+static func pad_name(action: String) -> String:
+	var b := pad_button_for(action)
+	if b >= 0:
+		return button_name(b)
+	var m := _pad_map()
+	return m[action][1] if m.has(action) else ""
+
+
+## Move a controller action to another button. A button another action uses is swapped onto it.
+static func rebind_pad(action: String, button: int) -> void:
+	var old := pad_button_for(action)
+	for a in PAD_REBINDABLE:
+		if a != action and pad_button_for(a) == button:
+			_set_pad_bind(a, old)
+	_set_pad_bind(action, button)
+	apply_binds()
+	save_file()
+
+
+static func _set_pad_bind(action: String, button: int) -> void:
+	var m := _pad_map()
+	if int(m[action][0]) == button:
+		pad_binds.erase(action)
+	else:
+		pad_binds[action] = button
+
+
+static func reset_pad() -> void:
+	pad_binds = {}
+	apply_binds()
+	save_file()
+
+
+## Put every rebindable action on its current key, and every action on its controller button.
 static func apply_binds() -> void:
+	_apply_keys()
+	var m := _pad_map()
+	for action in m:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+		for e in InputMap.action_get_events(action):
+			if e is InputEventJoypadButton or e is InputEventJoypadMotion:
+				InputMap.action_erase_event(action, e)
+		var spec = m[action][0]
+		if not (spec is Array):
+			spec = pad_button_for(action)
+		if spec is Array:
+			var jm := InputEventJoypadMotion.new()
+			jm.device = -1          # any controller, whichever slot Windows gives it
+			jm.axis = spec[0]
+			jm.axis_value = spec[1]
+			InputMap.action_add_event(action, jm)
+		else:
+			var jb := InputEventJoypadButton.new()
+			jb.device = -1
+			jb.button_index = spec
+			InputMap.action_add_event(action, jb)
+		InputMap.action_set_deadzone(action, 0.25)
+
+
+static func _apply_keys() -> void:
 	for a in ACTIONS:
 		var action: String = a[0]
 		if not InputMap.has_action(action):
@@ -155,6 +314,15 @@ static func reset_binds() -> void:
 ## The label for a prompt key. Prompts are written with the default key ("E"); this shows the
 ## key the player actually has it on.
 static func prompt_key(k: String) -> String:
+	if using_pad:
+		match k:
+			"Left mouse": return "RT"
+			"Right mouse": return "LT"
+			"Wheel": return "D-pad left/right"
+		for a in ACTIONS:
+			if key_name(a[2]) == k:
+				return pad_name(a[0])
+		return k
 	if binds.is_empty():
 		return k
 	for a in ACTIONS:
@@ -211,6 +379,13 @@ static func look_speed() -> float:
 
 ## The key help line at the bottom of the screen, on the player's current keys.
 static func help(driving: bool) -> String:
+	if using_pad:
+		var n := func(a: String) -> String: return pad_name(a)
+		if driving:
+			return "Left stick drive / steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Menu pause" % [
+				n.call("jump"), n.call("camera"), n.call("dump"), n.call("interact"), n.call("map")]
+		return "Left stick move   Right stick look   %s sprint   %s jump   RT dig   %s use / pan   %s carry   D-pad adjust   %s dump bucket   %s map   %s headlamp   Menu pause" % [
+			n.call("sprint"), n.call("jump"), n.call("interact"), n.call("carry"), n.call("dump"), n.call("map"), n.call("headlamp")]
 	var k := func(a: String) -> String: return key_name(key_for(a))
 	var move: String = k.call("move_forward") + k.call("move_left") + k.call("move_back") + k.call("move_right")
 	if driving:

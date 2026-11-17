@@ -168,7 +168,10 @@ func sample(x: float, z: float) -> Vector4:
 	var rw := _bl(f, FROAD)
 	if rw > 0.001:
 		h = lerpf(h, _bl(f, FROADH), rw)
-		look = maxf(look, smoothstep(0.3, 0.8, rw))
+		# The bare track's edge wanders, so grass creeps onto the shoulders in patches.
+		var rag := 0.5 + 0.5 * sin(x * 0.31 + z * 0.13) * sin(z * 0.27 - x * 0.19 + 1.7)
+		var t0 := 0.42 + 0.33 * rag
+		look = maxf(look, smoothstep(t0, t0 + 0.15, rw))
 	look = maxf(look, _street(x, z))
 	if _beach != Vector2.ZERO and absf(x - _beach.x) < Garnets.BEACH_RADIUS and absf(z - _beach.y) < Garnets.BEACH_RADIUS:
 		var bd := Vector2(x, z).distance_to(_beach)
@@ -901,7 +904,7 @@ func _make_sites_and_roads() -> void:
 			if wl > NO_WATER * 0.5 and river_info(path[i].x, path[i].y).x < 1.5:
 				hs[i] = clampf(hs[i], wl - 0.45, wl - 0.25)   # fords: always under water, never deep
 		roads.append({"pts": path, "h": hs})
-		_stamp_band(path, hs, 2.6, 8.0, "road")
+		_stamp_band(path, hs, 1.6, 5.5, "road")
 	# Level pads for the cabin and landmarks (applied last, over roads).
 	for s in [["base", 13.0], ["camp", 10.0], ["mine", 6.0], ["town", 34.0]]:
 		var site: Dictionary = sites[s[0]]

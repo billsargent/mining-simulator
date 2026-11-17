@@ -23,9 +23,15 @@ const ITEMS = [
 	["trommel", "Trommel", 3500, "washes and screens gravel by the ton; runs off the pump like the high banker"],
 	["excavator", "Mini-excavator", 6000, "drive it beside a trommel or high banker and dig a bucket at a time (left mouse)"],
 	["sieve", "Garnet sieve", 35, "shake beach gravel under water at Garnet Beach, then flip it: the garnets sit on top"],
+	["lantern", "Lantern", 40, "a warm glow about 7 m around; set it down anywhere (up to 6)"],
+	["flood", "Work light", 250, "an LED flood on a tripod, about 25 m ahead; aim it with the mouse wheel (up to 4)"],
+	["tower", "Light tower", 2200, "four lamps on a mast light a whole dig site, about 50 m round (up to 2)"],
+	["headlamp", "Bright headlamp", 180, "your headlamp reaches twice as far"],
 	["camp", "Camp tent", 300, "pitch it anywhere: sleep there, and fast travel between your camps and the cabin (up to 3)"],
 ]
 const SHOWN := 5
+## Lights you can own several of: how many at most.
+const LIGHT_MAX := {"lantern": 6, "flood": 4, "tower": 2}
 
 var _sel := 0
 
@@ -52,6 +58,8 @@ func _owned(inv, id: String) -> bool:
 			return inv.crusher_powered
 	if id == "camp":
 		return int(inv.gear.get("camps", 0)) >= 3
+	if LIGHT_MAX.has(id):
+		return int(inv.gear.get(id, 0)) >= LIGHT_MAX[id]
 	return inv.gear.has(id)
 
 
@@ -128,6 +136,9 @@ func interact(player) -> void:
 		"sieve":
 			inv.gear["sieve"] = true
 			said = "A garnet sieve. Garnet Beach is on the Big Sable River, east of town (it's on your map)."
+		"lantern", "flood", "tower":
+			inv.gear[id] = int(inv.gear.get(id, 0)) + 1
+			said = "%s, waiting by the shed at your cabin. Carry it (F) where you need light; E turns it on and off." % it[1]
 		"trailer":
 			inv.gear["trailer"] = true
 			said = "A flatbed trailer, parked behind the pickup at your cabin. Back the pickup up to it and hitch it (E)."

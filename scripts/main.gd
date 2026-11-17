@@ -44,6 +44,7 @@ const Camp = preload("res://scripts/base/camp.gd")
 const Trommel = preload("res://scripts/machines/trommel.gd")
 const Garnets = preload("res://scripts/gold/garnets.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
+const WorkLight = preload("res://scripts/base/work_light.gd")
 const Excavator = preload("res://scripts/vehicles/excavator.gd")
 const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
@@ -547,6 +548,9 @@ func spawn_machine(kind: String):
 			m = Camp.new()
 		"trommel":
 			m = Trommel.new()
+		"light_lantern", "light_flood", "light_tower":
+			m = WorkLight.new()
+			m.set_size(kind.trim_prefix("light_"))
 		_:
 			return null
 	add_child(m)
@@ -598,6 +602,11 @@ func deliver(item: String) -> void:
 		var t := _parked(0)
 		t.origin += t.basis.x * 6.0
 		spawn_vehicle("excavator").global_transform = t
+	elif item in ["lantern", "flood", "tower"]:
+		var n := get_tree().get_nodes_in_group("machines").filter(func(mm): return mm.kind == "light_" + item).size()
+		var spot: Vector3 = {"lantern": Vector3(-3.0 - 0.6 * n, 0.0, 3.6), "flood": Vector3(-5.0 - 1.2 * n, 0.0, 5.0),
+			"tower": Vector3(-14.0 - 4.0 * n, 0.0, 8.0)}[item]
+		spawn_machine("light_" + item).place_at(base.to_global(spot), base.slot_yaw())
 	elif item == "camp":
 		var tent = spawn_machine("camp")
 		var n := 0
@@ -622,16 +631,17 @@ func deliver(item: String) -> void:
 ## Things the player owns that change how the machines work.
 func _apply_gear() -> void:
 	Recovery.carpet_bonus = 0.12 if player.inv.gear.has("moss") else 0.0
+	player.set_bright_lamp(player.inv.gear.has("headlamp"))
 
 
 func _setup_input() -> void:
-	Settings.apply_binds()
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("dig", mb)
+	Settings.apply_binds()     # keys, then the controller buttons on every action
 
 
 func _bind_key(action: StringName, key: Key) -> void:
@@ -1009,6 +1019,19 @@ func _apply_view() -> void:
 				tents[0].place_at(Vector3(tp.x, 0.0, tp.y), 0.5)
 				from = tents[0].to_global(Vector3(2.5, 0.0, 5.5))
 				at = tents[0].global_position + Vector3(0, 0.7, 0)
+			"lights":
+				# Every kind of light, plus the pickup's headlights left on (use with --time=22).
+				for item in ["lantern", "flood", "tower"]:
+					if machine_of("light_" + item) == null:
+						deliver(item)
+				var c := base.to_global(Vector3(-6.0, 0.0, 14.0))
+				machine_of("light_lantern").place_at(c + Vector3(-2.0, 0, 0), 0.0)
+				machine_of("light_flood").place_at(c + Vector3(3.0, 0, -4.0), 2.6)
+				machine_of("light_tower").place_at(c + Vector3(14.0, 0, -12.0), 0.0)
+				vehicle_of("truck").lights_left_on = true
+				vehicle_of("truck").set_dark(true)
+				from = c + Vector3(-4.0, 3.0, 12.0)
+				at = c + Vector3(2.0, 0.5, -4.0)
 			"trommel":
 				if machine_of("trommel") == null:
 					deliver("trommel")
@@ -1762,7 +1785,48 @@ func _selftest() -> void:
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)
-	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
+	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
+	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
+	var pad_ok := true
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up"]:
+		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
+			pad_ok = false
+	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var slot2 := InputEventJoypadButton.new()
+	slot2.device = 2
+	slot2.button_index = JOY_BUTTON_X
+	slot2.pressed = true
+	_check("a controller in any slot works", InputMap.event_is_action(slot2, "interact"))
+	var xb := InputEventJoypadButton.new()
+	xb.button_index = JOY_BUTTON_X
+	xb.pressed = true
+	Settings.note_input(xb)
+	_check("prompts show controller buttons", Settings.using_pad and Hud.key("E").contains("X") and Settings.help(false).contains("Right stick"))
+	Settings.rebind_pad("interact", JOY_BUTTON_Y)
+	var ybtn := InputMap.action_get_events("interact").filter(func(e): return e is InputEventJoypadButton)
+	_check("a controller button can be moved", ybtn.size() == 1 and ybtn[0].button_index == JOY_BUTTON_Y
+		and Settings.pad_button_for("carry") == JOY_BUTTON_X and Hud.key("E").contains("Y"))
+	Settings.reset_pad()
+	_check("controller buttons reset", Settings.pad_button_for("interact") == JOY_BUTTON_X and Settings.pad_button_for("carry") == JOY_BUTTON_Y)
+	map_view.toggle()
+	map_view.cursor = Vector2(1000, 1000)
+	var wp_before: int = map_view.waypoints.size()
+	var abtn := InputEventJoypadButton.new()
+	abtn.button_index = JOY_BUTTON_A
+	abtn.pressed = true
+	map_view._unhandled_input(abtn)
+	_check("the controller drops a waypoint on the map", map_view.waypoints.size() == wp_before + 1)
+	var xbtn2 := InputEventJoypadButton.new()
+	xbtn2.button_index = JOY_BUTTON_X
+	xbtn2.pressed = true
+	map_view._unhandled_input(xbtn2)
+	map_view.toggle()
+	_check("and removes it", map_view.waypoints.size() == wp_before and not map_view.visible)
+	var kb := InputEventKey.new()
+	kb.physical_keycode = KEY_W
+	kb.pressed = true
+	Settings.note_input(kb)
+	_check("keyboard takes prompts back", not Settings.using_pad and Hud.key("E").contains("G"))
 	_check("prompts show the new key", Hud.key("E").contains("G"))
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)
@@ -1812,6 +1876,27 @@ func _selftest() -> void:
 	inv.specimens = PackedFloat32Array()
 	town.assay.interact(player)
 	_check("the assay office buys garnets", inv.garnets.is_empty() and inv.money == gmoney + gvalue)
+	# Lights: the store sells them, they switch with E, save, and vehicles keep headlights on.
+	player.inv.money += 5000
+	for item in ["lantern", "flood", "tower", "headlamp"]:
+		town.store.select(item)
+		town.store.interact(player)
+	var lan = machine_of("light_lantern")
+	_check("lights delivered", lan != null and machine_of("light_flood") != null and machine_of("light_tower") != null)
+	_check("bright headlamp", player.lamp_boost > 1.0)
+	if lan != null:
+		lan.interact(player)
+		var ld: Dictionary = lan.to_dict()
+		_check("a light switches off and saves so", not lan.on and ld["kind"] == "light_lantern" and ld["on"] == false)
+		var lcopy = spawn_machine(ld["kind"])
+		lcopy.from_dict(ld)
+		_check("a saved light comes back", lcopy.display_name == "Lantern" and not lcopy.on)
+		lcopy.queue_free()
+		lan.interact(player)
+	var ltruck = vehicle_of("truck")
+	ltruck.toggle_lights()
+	_check("headlights stay on with nobody in", ltruck.driver == null and ltruck._lights[0].visible and ltruck.to_dict()["lights"] == true)
+	ltruck.toggle_lights()
 	Settings.quality = 0
 	Settings.apply_graphics(get_tree())
 	_check("low quality turns off shadows", not day_night.sun.shadow_enabled)
