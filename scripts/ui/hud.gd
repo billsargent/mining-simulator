@@ -10,6 +10,9 @@ var compass: Compass
 var _prompt: RichTextLabel
 var _status: Label
 var _goal: Label
+var _guide: Control
+var _guide_pos := Vector2.ZERO
+var _guide_dist := -1.0
 var _toast: Label
 var _toast_left := 0.0
 var _pan_box: PanelContainer
@@ -58,6 +61,12 @@ func _ready() -> void:
 	status_box.add_child(col)
 	_status = _label(19)
 	col.add_child(_status)
+	# The guide: a green diamond over the next goal's place, with its distance.
+	_guide = Control.new()
+	_guide.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_guide.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_guide.draw.connect(_draw_guide)
+	root.add_child(_guide)
 	_goal = _label(16)
 	_goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_goal.custom_minimum_size = Vector2(380, 0)
@@ -191,6 +200,35 @@ func set_status(inv, bucket_capacity: int, clock: String = "", extra: PackedStri
 	var t := "\n".join(lines)
 	if _status.text != t:
 		_status.text = t
+
+
+## Point the guide at a world position (or hide it with null).
+func set_guide(target, cam: Camera3D) -> void:
+	_guide_dist = -1.0
+	if target != null and cam != null:
+		var p: Vector3 = target + Vector3(0, 1.6, 0)
+		var d := cam.global_position.distance_to(p)
+		# Only near goals get the on-screen marker; far ones are on the compass.
+		if d > 6.0 and d < 600.0 and not cam.is_position_behind(p):
+			_guide_pos = cam.unproject_position(p)
+			_guide_dist = d
+	_guide.queue_redraw()
+
+
+func _draw_guide() -> void:
+	if _guide_dist < 0.0:
+		return
+	var c := _guide_pos
+	var col := Color(0.45, 1.0, 0.5, 0.9)
+	var pts := PackedVector2Array([c + Vector2(0, -11), c + Vector2(9, 0), c + Vector2(0, 11), c + Vector2(-9, 0)])
+	_guide.draw_colored_polygon(pts, Color(0, 0, 0, 0.45))
+	pts.append(pts[0])
+	_guide.draw_polyline(pts, col, 2.5, true)
+	var font := _guide.get_theme_default_font()
+	var text := "%d m" % roundi(_guide_dist)
+	var at := c + Vector2(-4.0 * text.length(), 30)
+	_guide.draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 4, Color(0, 0, 0, 0.8))
+	_guide.draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
 
 
 func set_goal(text: String) -> void:

@@ -518,6 +518,10 @@ func _on_pan_finished(kept: PackedFloat32Array, lost: PackedFloat32Array, _black
 		msg = "Pan %d: %d piece%s of gold, %.3f g" % [inv.pans, kept.size(), "" if kept.size() == 1 else "s", grams]
 	if _pan_source == "bucket":
 		inv.complete_goal("pan")
+		if inv.goals_done.has("pan") and (kept.size() >= 3 or inv.pans >= 8):
+			if inv.complete_goal("read_creek"):
+				msg += "
+Good showing! That's how you read a creek: look for where the water slows."
 		var src: Vector3 = _pan_dirt.source
 		if src != Vector3.ZERO:
 			inv.log_sample(src.x, src.z, grams)
