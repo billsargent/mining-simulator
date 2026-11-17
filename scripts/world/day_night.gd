@@ -46,6 +46,15 @@ func clock_text() -> String:
 	return "Day %d   %d:%02d %s" % [day, h12, m, suffix]
 
 
+## Let time pass (fast travel).
+func advance(h: float) -> void:
+	hours += h
+	while hours >= 24.0:
+		hours -= 24.0
+		day += 1
+	apply()
+
+
 ## Skip to 7 in the morning.
 func sleep_until_morning() -> void:
 	if hours >= 7.0:

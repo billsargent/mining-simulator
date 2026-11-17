@@ -40,6 +40,8 @@ const DryWasher = preload("res://scripts/machines/dry_washer.gd")
 const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
 const Trailer = preload("res://scripts/vehicles/trailer.gd")
+const Camp = preload("res://scripts/base/camp.gd")
+const Travel = preload("res://scripts/core/travel.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
@@ -223,6 +225,9 @@ func _update_compass() -> void:
 		markers.append([map_view.waypoints[i], Color(1.0, 0.85, 0.2), str(i + 1)])
 	markers.append([world.sites["base"]["pos"], Color(1.0, 0.55, 0.25), "Home"])
 	markers.append([world.sites["town"]["pos"], Color(0.75, 0.7, 1.0), "Town"])
+	for m in get_tree().get_nodes_in_group("machines"):
+		if m.kind == "camp" and not m.carried and m.loaded_on == null:
+			markers.append([Vector2(m.global_position.x, m.global_position.z), Color(0.6, 0.9, 0.5), m.camp_name()])
 	for m in map_view.marks:
 		markers.append([m[0], Color(1.0, 0.45, 0.35), m[1]])
 	for v in get_tree().get_nodes_in_group("vehicles"):
@@ -297,6 +302,43 @@ func mark_place(where: String, label: String) -> void:
 
 func rich_spot(river_name: String) -> Vector2:
 	return deposits.rich_spot(river_name)
+
+
+## Travel to a place you own. Time passes with the distance; a vehicle you stand next to comes
+## along (with its trailer and cargo).
+func fast_travel(dest: Vector3, place: String) -> void:
+	var from := player.global_position
+	var hours := Travel.hours_for(from, dest)
+	var bring = null
+	for v in get_tree().get_nodes_in_group("vehicles"):
+		if v.kind != "trailer" and v.global_position.distance_to(from) < Travel.BRING_VEHICLE:
+			if bring == null or v.global_position.distance_to(from) < bring.global_position.distance_to(from):
+				bring = v
+	var ground := Vector3(dest.x, terrain.height_at(dest.x, dest.z) + 0.1, dest.z)
+	player.global_position = ground
+	player.velocity = Vector3.ZERO
+	terrain.focus = ground
+	scatter.focus = ground
+	_build_near_player()
+	if bring != null:
+		var trailer = null
+		for v in get_tree().get_nodes_in_group("vehicles"):
+			if v.kind == "trailer" and v.towed_by == bring:
+				trailer = v
+				v.unhitch()
+		var spot := ground + Vector3(4.0, 0.0, 0.0)
+		spot.y = terrain.height_at(spot.x, spot.z) + 0.3
+		bring.freeze = true
+		bring.global_transform = Transform3D(Basis(Vector3.UP, player.rotation.y), spot)
+		if trailer != null:
+			trailer.freeze = true
+			trailer.hitch(bring)
+	day_night.advance(hours)
+	map_view.reveal_around(ground)
+	save_now()
+	hud.blackout(1.5)
+	hud.toast("You travel to %s. %s later.%s" % [place, Travel._hours_text(hours).replace("min", "minutes"),
+		(" The %s came along." % str(bring.display_name).to_lower()) if bring != null else ""], Color(1.0, 0.9, 0.6), 5.0)
 
 
 func sleep() -> void:
@@ -386,6 +428,8 @@ func spawn_machine(kind: String):
 			m = Dredge.new()
 		"dry_washer":
 			m = DryWasher.new()
+		"camp":
+			m = Camp.new()
 		_:
 			return null
 	add_child(m)
@@ -429,6 +473,14 @@ func deliver(item: String) -> void:
 	if item == "high_banker":
 		spawn_machine("high_banker").place_at(base.slot_position(1), base.slot_yaw())
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
+	elif item == "camp":
+		var tent = spawn_machine("camp")
+		var n := 0
+		for m in get_tree().get_nodes_in_group("machines"):
+			if m.kind == "camp":
+				n += 1
+		tent.number = n
+		tent.place_at(base.to_global(Vector3(-13.0 - 3.5 * n, 0.0, 1.0)), base.slot_yaw())
 	elif item == "trailer":
 		var t := _parked(1)
 		t.origin += t.basis.z * 6.5
@@ -804,6 +856,15 @@ func _apply_view() -> void:
 					tl.hitch(tk)
 				from = tk.to_global(Vector3(-6.5, 0.0, 6.0))
 				at = tl.global_position + Vector3(0, 0.8, 0)
+			"tent":
+				var tents := get_tree().get_nodes_in_group("machines").filter(func(mm): return mm.kind == "camp")
+				if tents.is_empty():
+					deliver("camp")
+					tents = get_tree().get_nodes_in_group("machines").filter(func(mm): return mm.kind == "camp")
+				var tp := world.river_point("Willow Creek", 0.5, 6.0)
+				tents[0].place_at(Vector3(tp.x, 0.0, tp.y), 0.5)
+				from = tents[0].to_global(Vector3(2.5, 0.0, 5.5))
+				at = tents[0].global_position + Vector3(0, 0.7, 0)
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -1347,6 +1408,37 @@ func _selftest() -> void:
 			saved_trailer = true
 	_check("the trailer is saved", saved_trailer)
 	SaveGame.delete()
+
+	# Camps and fast travel: pitch a tent far away, travel there from the bunk with the pickup.
+	inv.money += 300
+	town.store.select("camp")
+	town.store.interact(player)
+	var tent = null
+	for mach in get_tree().get_nodes_in_group("machines"):
+		if mach.kind == "camp":
+			tent = mach
+	_check("a camp tent is delivered", tent != null)
+	var camp_spot := _v3(world.river_point("Willow Creek", 0.5, 6.0))
+	tent.place_at(camp_spot, 0.0)
+	pickup.freeze = true
+	pickup.global_transform = _parked(1)
+	player.global_position = base.spawn_point
+	var day0: float = day_night.day * 24.0 + day_night.hours
+	var dests := Travel.destinations(self, player.global_position)
+	_check("the camp is a destination", dests.size() == 1 and str(dests[0][0]) == "Camp 1")
+	base.bed.scroll(player, -1)
+	base.bed.interact(player)
+	for i in 20:
+		await get_tree().physics_frame
+	var waited: float = day_night.day * 24.0 + day_night.hours - day0
+	print("  travelled %.0f m in %.2f hours" % [Vector2(base.spawn_point.x, base.spawn_point.z).distance_to(Vector2(camp_spot.x, camp_spot.z)), waited])
+	_check("fast travel takes you to the camp, and time passes", player.global_position.distance_to(tent.arrival_point()) < 3.0
+		and waited >= Travel.hours_for(base.spawn_point, camp_spot) - 0.01)
+	_check("the pickup came along", pickup.global_position.distance_to(player.global_position) < 8.0)
+	_check("you land on the ground", player.is_on_floor() or absf(player.global_position.y - terrain.height_at(player.global_position.x, player.global_position.z)) < 0.5)
+	tent.scroll(player, -1)
+	tent.interact(player)
+	_check("and back to the cabin from the tent", player.global_position.distance_to(base.spawn_point) < 3.0)
 
 	# Walk.
 	player.global_position = base.spawn_point

@@ -79,3 +79,4 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Check coarse accuracy: `godot --headless --path . --script res://tests/test_coarse.gd`. The world test prints how many detail tiles were built.
 - The player has a fall-through safety net on the surface: collision can lag a moment after a long teleport.
 - `scripts/vehicles/trailer.gd`: tandem flatbed, two cargo slots, hitched to the pickup with a `PinJoint3D` at `BALL`/`TONGUE`. Vehicles override `_hold_still()` to roll freely. Screenshot `--view=trailer`.
+- Camps: `scripts/base/camp.gd` (a machine of kind `camp`, works anywhere, no claim needed) and `scripts/core/travel.gd`. The tent and the cabin bunk offer sleep or travel; `main.fast_travel()` advances time by distance and brings a vehicle within 25 m (and its trailer). Screenshot `--view=tent`.

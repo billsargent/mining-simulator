@@ -257,6 +257,11 @@ func draw_icons(c: Control) -> void:
 			var q := pos * s
 			c.draw_rect(Rect2(q - Vector2(5, 5), Vector2(10, 10)), pl[2])
 			_text(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05))
+	for m in main.get_tree().get_nodes_in_group("machines"):
+		if m.kind == "camp" and m.loaded_on == null:
+			var cq := Vector2(m.global_position.x, m.global_position.z) * s
+			c.draw_colored_polygon(PackedVector2Array([cq + Vector2(0, -7), cq + Vector2(6, 5), cq + Vector2(-6, 5)]), Color(0.2, 0.45, 0.15))
+			_text(c, font, cq + Vector2(8, 4), m.camp_name(), 12, Color(0.15, 0.35, 0.1))
 	for v in main.get_tree().get_nodes_in_group("vehicles"):
 		var q := Vector2(v.global_position.x, v.global_position.z) * s
 		c.draw_rect(Rect2(q - Vector2(4, 4), Vector2(8, 8)), Color(0.15, 0.35, 0.8))
