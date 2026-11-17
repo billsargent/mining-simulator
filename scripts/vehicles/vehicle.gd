@@ -175,6 +175,10 @@ var _tipped_t := 0.0
 
 func _physics_process(delta: float) -> void:
 	_enter_block -= delta
+	if driver != null and not _chase_on and not driver.map_open:
+		var look := Settings.pad_look(delta)
+		_yaw = clampf(_yaw - look.x, -1.9, 1.9)
+		_pitch = clampf(_pitch - look.y, -1.1, 0.9)
 	_engine_sound()
 	_keep_upright(delta)
 	if driver != null:
@@ -360,7 +364,7 @@ func _drive(dt: float) -> void:
 
 
 func _update_lights() -> void:
-	var on := driver != null and _dark
+	var on := (driver != null and _dark) or lights_left_on
 	for l in _lights:
 		l.visible = on
 
@@ -399,7 +403,23 @@ func prompt(_player) -> String:
 			names.append(str(c.display_name).to_lower())
 	if not names.is_empty():
 		t += "   carrying: " + ", ".join(names)
-	return t + "\n" + Hud.key("E") + " Drive"
+	t += "\n" + Hud.key("E") + " Drive"
+	if not _lights.is_empty():
+		t += "     " + Hud.key("F") + (" Headlights off" if lights_left_on else " Leave the headlights on")
+	return t
+
+
+## Headlights left on light up whatever the vehicle faces, with nobody in it. They never run
+## the battery down.
+var lights_left_on := false
+
+
+func toggle_lights() -> void:
+	if _lights.is_empty():
+		return
+	lights_left_on = not lights_left_on
+	_update_lights()
+	Sfx.play("click", global_position)
 
 
 func interact(player) -> void:
@@ -434,8 +454,10 @@ func unload_cargo(machine) -> void:
 # --- Saving --------------------------------------------------------------------------------
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "xform": global_transform}
+	return {"kind": kind, "xform": global_transform, "lights": lights_left_on}
 
 
 func from_dict(d: Dictionary) -> void:
 	global_transform = d.get("xform", global_transform)
+	lights_left_on = d.get("lights", false)
+	_update_lights()

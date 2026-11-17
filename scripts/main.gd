@@ -43,6 +43,9 @@ const Truck = preload("res://scripts/vehicles/truck.gd")
 const Trailer = preload("res://scripts/vehicles/trailer.gd")
 const Camp = preload("res://scripts/base/camp.gd")
 const Trommel = preload("res://scripts/machines/trommel.gd")
+const Garnets = preload("res://scripts/gold/garnets.gd")
+const Parts = preload("res://scripts/machines/parts.gd")
+const WorkLight = preload("res://scripts/base/work_light.gd")
 const Excavator = preload("res://scripts/vehicles/excavator.gd")
 const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
@@ -159,6 +162,7 @@ func _ready() -> void:
 	add_child(town)
 	town.build(terrain, world.sites["town"])
 	Claims.setup(world, deposits)
+	_garnet_sign()
 	_build_bounds()
 	hud = Hud.new()
 	add_child(hud)
@@ -509,6 +513,32 @@ func _build_near_player() -> void:
 	scatter.build_near_now()
 
 
+## A painted sign up the bank from Garnet Beach.
+func _garnet_sign() -> void:
+	var b := Garnets.beach
+	var spot := b
+	for k in 16:
+		var a := TAU * k / 16.0
+		var p := b + Vector2(cos(a), sin(a)) * 9.0
+		var e: float = world.river_info(p.x, p.y).x
+		if e > 4.0 and e < 14.0:
+			spot = p
+			break
+	var sign := StaticBody3D.new()
+	add_child(sign)
+	sign.global_position = Vector3(spot.x, terrain.height_at(spot.x, spot.y), spot.y)
+	sign.rotation.y = atan2(b.x - spot.x, b.y - spot.y) + PI
+	var wood := Parts.wood("sign_post", Color(0.45, 0.33, 0.22))
+	for s: float in [-0.6, 0.6]:
+		Parts.box(sign, Vector3(0.1, 1.9, 0.1), Vector3(s, 0.95, 0), wood)
+	Parts.box(sign, Vector3(1.6, 0.55, 0.05), Vector3(0, 1.55, 0), Parts.wood("sign_board", Color(0.5, 0.38, 0.26)))
+	var l := Parts.label(sign, "GARNET BEACH", Vector3(0, 1.6, 0.03), 34)
+	l.modulate = Color(0.55, 0.05, 0.1)
+	var l2 := Parts.label(sign, "sieve & flip", Vector3(0, 1.42, 0.03), 22)
+	l2.modulate = Color(0.2, 0.15, 0.1)
+	Parts.collider(sign, Vector3(1.6, 1.9, 0.12), Vector3(0, 0.95, 0))
+
+
 func spawn_machine(kind: String):
 	var m
 	match kind:
@@ -526,6 +556,9 @@ func spawn_machine(kind: String):
 			m = Camp.new()
 		"trommel":
 			m = Trommel.new()
+		"light_lantern", "light_flood", "light_tower":
+			m = WorkLight.new()
+			m.set_size(kind.trim_prefix("light_"))
 		_:
 			return null
 	add_child(m)
@@ -577,6 +610,11 @@ func deliver(item: String) -> void:
 		var t := _parked(0)
 		t.origin += t.basis.x * 6.0
 		spawn_vehicle("excavator").global_transform = t
+	elif item in ["lantern", "flood", "tower"]:
+		var n := get_tree().get_nodes_in_group("machines").filter(func(mm): return mm.kind == "light_" + item).size()
+		var spot: Vector3 = {"lantern": Vector3(-3.0 - 0.6 * n, 0.0, 3.6), "flood": Vector3(-5.0 - 1.2 * n, 0.0, 5.0),
+			"tower": Vector3(-14.0 - 4.0 * n, 0.0, 8.0)}[item]
+		spawn_machine("light_" + item).place_at(base.to_global(spot), base.slot_yaw())
 	elif item == "camp":
 		var tent = spawn_machine("camp")
 		var n := 0
@@ -601,16 +639,17 @@ func deliver(item: String) -> void:
 ## Things the player owns that change how the machines work.
 func _apply_gear() -> void:
 	Recovery.carpet_bonus = 0.12 if player.inv.gear.has("moss") else 0.0
+	player.set_bright_lamp(player.inv.gear.has("headlamp"))
 
 
 func _setup_input() -> void:
-	Settings.apply_binds()
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("dig", mb)
+	Settings.apply_binds()     # keys, then the controller buttons on every action
 
 
 func _bind_key(action: StringName, key: Key) -> void:
@@ -918,6 +957,25 @@ func _apply_view() -> void:
 			"base":
 				from = base.to_global(Vector3(-3.0, 0.0, 15.0))
 				at = base.to_global(Vector3(0.0, 1.5, -1.0))
+			"garnet":
+				# On Garnet Beach with a sieve just flipped, garnets on top.
+				var gb := Garnets.beach
+				var dry := gb
+				for k in 16:
+					var a := TAU * k / 16.0
+					var p := gb + Vector2(cos(a), sin(a)) * 3.0
+					if world.river_info(p.x, p.y).x > 1.0:
+						dry = p
+						break
+				from = Vector3(dry.x, 0.0, dry.y)
+				at = Vector3(gb.x + (gb.x - dry.x) * 3.0, terrain.height_at(gb.x, gb.y) - 0.5, gb.y + (gb.y - dry.y) * 3.0)
+				player.inv.gear["sieve"] = true
+				player._sieve_step()
+				player._sieve_phase = 3
+				player._sieve_t = 1.0e6
+				player._sieve.rotation.z = PI
+				player._sieve_found = [1.4, 0.5, 2.6, 0.35]
+				player._show_garnets()
 			"parking":
 				from = base.to_global(Vector3(2.0, 0.0, 16.0))
 				at = base.to_global(Vector3(1.0, 0.5, 3.5))
@@ -980,6 +1038,19 @@ func _apply_view() -> void:
 				tents[0].place_at(Vector3(tp.x, 0.0, tp.y), 0.5)
 				from = tents[0].to_global(Vector3(2.5, 0.0, 5.5))
 				at = tents[0].global_position + Vector3(0, 0.7, 0)
+			"lights":
+				# Every kind of light, plus the pickup's headlights left on (use with --time=22).
+				for item in ["lantern", "flood", "tower"]:
+					if machine_of("light_" + item) == null:
+						deliver(item)
+				var c := base.to_global(Vector3(-6.0, 0.0, 14.0))
+				machine_of("light_lantern").place_at(c + Vector3(-2.0, 0, 0), 0.0)
+				machine_of("light_flood").place_at(c + Vector3(3.0, 0, -4.0), 2.6)
+				machine_of("light_tower").place_at(c + Vector3(14.0, 0, -12.0), 0.0)
+				vehicle_of("truck").lights_left_on = true
+				vehicle_of("truck").set_dark(true)
+				from = c + Vector3(-4.0, 3.0, 12.0)
+				at = c + Vector3(2.0, 0.5, -4.0)
 			"trommel":
 				if machine_of("trommel") == null:
 					deliver("trommel")
@@ -1042,6 +1113,20 @@ func _demo_setup() -> void:
 			m.feed(deposits.shovelful(p.x, p.z, 0.3, 0.15, 0.0))
 		for i in 3:
 			m._process_one(deposits.shovelful(p.x, p.z, 0.15, 0.0, 0.0))
+
+
+## A point across the creek (frac of its half width) near the middle of a claim, for tests.
+func _claim_point(id: String, frac: float) -> Vector2:
+	var c := Claims.by_id(id)
+	var best := Vector2.ZERO
+	var best_d := 1.0e9
+	for i in 1000:
+		var p := world.river_point(c["river"], i / 1000.0, frac)
+		var d := p.distance_to(c["pos"])
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
 
 
 func _v3(p: Vector2) -> Vector3:
@@ -1129,7 +1214,7 @@ func _selftest() -> void:
 	hud.hide_note()
 
 	# Claims: machines only run on ground you own.
-	var willow := _v3(world.river_point("Willow Creek", 0.5, 0.5))
+	var willow := _v3(_claim_point("willow", 0.5))
 	sluice.place_at(willow, 0.0)
 	_check("a sluice has water on Willow Creek but won't run: not your claim", sluice.water_problem() == "" and sluice.problem() != "" and not sluice.is_running())
 	var open_ground := _v3(world.river_point("Willow Creek", 0.15, 0.5))
@@ -1436,18 +1521,21 @@ func _selftest() -> void:
 	inv.add_gold(PackedFloat32Array([0.05, 0.5]))
 	inv.ore.clear()
 	inv.ore.append(Paydirt.new())
+	inv.garnets = PackedFloat32Array([1.25])
 	var jars_before: int = inv.cons.size()
 	base.chest.interact(player)
 	_check("the chest takes your goods", inv.bars.is_empty() and inv.nuggets.is_empty() and inv.vial.is_empty() and inv.ore.is_empty()
-		and inv.cons.is_empty() and inv.chest_bars.size() == 1 and inv.chest_nuggets.size() == 1 and inv.chest_ore.size() == 1)
+		and inv.cons.is_empty() and inv.chest_bars.size() == 1 and inv.chest_nuggets.size() == 1 and inv.chest_ore.size() == 1
+		and inv.garnets.is_empty() and inv.chest_garnets.size() == 1)
 	save_now()
 	var saved_chest: Dictionary = SaveGame.read().get("inventory", {}).get("chest", {})
-	_check("the chest is saved", (saved_chest.get("bars", []) as Array).size() == 1 and (saved_chest.get("cons", []) as Array).size() == jars_before)
+	_check("the chest is saved", (saved_chest.get("bars", []) as Array).size() == 1 and (saved_chest.get("cons", []) as Array).size() == jars_before
+		and (saved_chest.get("garnets", []) as PackedFloat32Array).size() == 1)
 	SaveGame.delete()
 	base.chest.scroll(player, 1)
 	base.chest.interact(player)
 	_check("and gives them back", inv.bars.size() == 1 and inv.nuggets.size() == 1 and inv.ore.size() == 1 and inv.cons.size() == jars_before
-		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001)
+		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001 and inv.garnets.size() == 1)
 	_check("the bunk is inside", base.to_local(base.bed.global_position).z < HomeBase.CABIN_Z)
 
 	# The suction dredge: bought with its permit, floated on your claim, it feeds itself.
@@ -1456,10 +1544,10 @@ func _selftest() -> void:
 	town.store.interact(player)
 	var dredge = machine_of("dredge")
 	_check("the dredge is delivered", dredge != null and inv.gear.has("dredge"))
-	var shallow := _v3(world.river_point("Big Sable River", 0.3, 1.2))
+	var shallow := _v3(_claim_point("sable", 2.2))
 	dredge.place_at(shallow, 0.0)
 	_check("the dredge needs deeper water", dredge.water_problem() != "")
-	var deep := _v3(world.river_point("Big Sable River", 0.3, 0.3))
+	var deep := _v3(_claim_point("sable", 0.3))
 	dredge.place_at(deep, 0.0)
 	_check("off your claim it won't run", dredge.water_problem() == "" and not dredge.is_running())
 	town.claims_office.select("sable")
@@ -1716,7 +1804,48 @@ func _selftest() -> void:
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)
-	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
+	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
+	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
+	var pad_ok := true
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up"]:
+		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
+			pad_ok = false
+	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var slot2 := InputEventJoypadButton.new()
+	slot2.device = 2
+	slot2.button_index = JOY_BUTTON_X
+	slot2.pressed = true
+	_check("a controller in any slot works", InputMap.event_is_action(slot2, "interact"))
+	var xb := InputEventJoypadButton.new()
+	xb.button_index = JOY_BUTTON_X
+	xb.pressed = true
+	Settings.note_input(xb)
+	_check("prompts show controller buttons", Settings.using_pad and Hud.key("E").contains("X") and Settings.help(false).contains("Right stick"))
+	Settings.rebind_pad("interact", JOY_BUTTON_Y)
+	var ybtn := InputMap.action_get_events("interact").filter(func(e): return e is InputEventJoypadButton)
+	_check("a controller button can be moved", ybtn.size() == 1 and ybtn[0].button_index == JOY_BUTTON_Y
+		and Settings.pad_button_for("carry") == JOY_BUTTON_X and Hud.key("E").contains("Y"))
+	Settings.reset_pad()
+	_check("controller buttons reset", Settings.pad_button_for("interact") == JOY_BUTTON_X and Settings.pad_button_for("carry") == JOY_BUTTON_Y)
+	map_view.toggle()
+	map_view.cursor = Vector2(1000, 1000)
+	var wp_before: int = map_view.waypoints.size()
+	var abtn := InputEventJoypadButton.new()
+	abtn.button_index = JOY_BUTTON_A
+	abtn.pressed = true
+	map_view._unhandled_input(abtn)
+	_check("the controller drops a waypoint on the map", map_view.waypoints.size() == wp_before + 1)
+	var xbtn2 := InputEventJoypadButton.new()
+	xbtn2.button_index = JOY_BUTTON_X
+	xbtn2.pressed = true
+	map_view._unhandled_input(xbtn2)
+	map_view.toggle()
+	_check("and removes it", map_view.waypoints.size() == wp_before and not map_view.visible)
+	var kb := InputEventKey.new()
+	kb.physical_keycode = KEY_W
+	kb.pressed = true
+	Settings.note_input(kb)
+	_check("keyboard takes prompts back", not Settings.using_pad and Hud.key("E").contains("G"))
 	_check("prompts show the new key", Hud.key("E").contains("G"))
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)
@@ -1744,6 +1873,71 @@ func _selftest() -> void:
 	st.interact(player)
 	_check("a hidden stash pays well", inv.finds.has(st.id))
 	_check("keys reset", Settings.key_for("interact") == KEY_E and Settings.key_for("carry") == KEY_F and Hud.key("E").contains("E"))
+
+	# Garnets: buy a sieve, stand on Garnet Beach, scoop, shake, flip; sell them in town.
+	inv.money += 100
+	town.store.select("sieve")
+	town.store.interact(player)
+	var gb := Garnets.beach
+	var gspot := gb
+	for k in 24:
+		var a := TAU * k / 24.0
+		var gp := gb + Vector2(cos(a), sin(a)) * 2.0
+		var ge: float = world.river_info(gp.x, gp.y).x
+		if ge > 0.3 and ge < 3.0:
+			gspot = gp
+			break
+	_place_player(Vector3(gspot.x, 0.0, gspot.y), 0.0, 0.0)
+	for i in 30:
+		await get_tree().physics_frame
+	inv.bucket.clear()
+	_check("garnet beach is on the map and you can sieve there", world.sites.has("garnet") and inv.gear.has("sieve") and player._on_beach())
+	inv.garnets = PackedFloat32Array()
+	player._garnet_rng.seed = 4
+	var sieved := 0
+	for load_i in 12:
+		player._sieve_step()
+		player._sieve_t = 0.0
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		player._sieve_step()
+		for i in 30:
+			await get_tree().physics_frame
+		player._sieve_t = 0.0
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		sieved += 1
+	_check("sieving and flipping turns up garnets", inv.garnets.size() > 0 and player._sieve_phase == 0)
+	var gmoney: int = inv.money
+	var gvalue := 0
+	for ct in inv.garnets:
+		gvalue += Garnets.value(ct)
+	inv.bars.clear()
+	inv.nuggets = PackedFloat32Array()
+	inv.specimens = PackedFloat32Array()
+	town.assay.interact(player)
+	_check("the assay office buys garnets", inv.garnets.is_empty() and inv.money == gmoney + gvalue)
+	# Lights: the store sells them, they switch with E, save, and vehicles keep headlights on.
+	player.inv.money += 5000
+	for item in ["lantern", "flood", "tower", "headlamp"]:
+		town.store.select(item)
+		town.store.interact(player)
+	var lan = machine_of("light_lantern")
+	_check("lights delivered", lan != null and machine_of("light_flood") != null and machine_of("light_tower") != null)
+	_check("bright headlamp", player.lamp_boost > 1.0)
+	if lan != null:
+		lan.interact(player)
+		var ld: Dictionary = lan.to_dict()
+		_check("a light switches off and saves so", not lan.on and ld["kind"] == "light_lantern" and ld["on"] == false)
+		var lcopy = spawn_machine(ld["kind"])
+		lcopy.from_dict(ld)
+		_check("a saved light comes back", lcopy.display_name == "Lantern" and not lcopy.on)
+		lcopy.queue_free()
+		lan.interact(player)
+	var ltruck = vehicle_of("truck")
+	ltruck.toggle_lights()
+	_check("headlights stay on with nobody in", ltruck.driver == null and ltruck._lights[0].visible and ltruck.to_dict()["lights"] == true)
+	ltruck.toggle_lights()
 	Settings.quality = 0
 	Settings.apply_graphics(get_tree())
 	_check("low quality turns off shadows", not day_night.sun.shadow_enabled)

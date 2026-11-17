@@ -45,7 +45,7 @@ func interact(player) -> void:
 	var n: int = inv.take_from_chest() if _take else inv.store_in_chest()
 	_flap()
 	if n == 0:
-		player.hud.toast("Nothing to take out." if _take else "Nothing to put away. Gold, jars, ore, bars, nuggets and specimens go in here.")
+		player.hud.toast("Nothing to take out." if _take else "Nothing to put away. Gold, jars, ore, bars, nuggets, specimens and garnets go in here.")
 	elif _take:
 		player.hud.toast("Took %d thing%s out of the chest." % [n, "" if n == 1 else "s"], Color(1.0, 0.9, 0.6))
 	else:

@@ -10,6 +10,9 @@ const WorldGen = preload("res://scripts/world/world_gen.gd")
 const CELLS := 64                 # exploration grid (32 m cells)
 const REVEAL := 170.0             # metres around you that get mapped
 const MAX_WAYPOINTS := 20
+const CURSOR_SPEED := 1600.0     # metres a second across the map at full stick
+
+var cursor := Vector2.ZERO        # the controller's map cursor, in world metres
 const FOG_SHADER := """
 shader_type canvas_item;
 uniform vec4 paper : source_color = vec4(0.86, 0.80, 0.66, 1.0);
@@ -132,6 +135,8 @@ func toggle() -> void:
 	main.player.map_open = visible
 	if visible:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		var fp: Vector3 = main.focus_position()
+		cursor = Vector2(fp.x, fp.z)
 		_icons.queue_redraw()
 	else:
 		Settings.capture_mouse()
@@ -144,12 +149,27 @@ func _process(delta: float) -> void:
 		_reveal_t = 0.5
 		reveal_around(main.focus_position())
 	if visible:
+		# Controller: the left stick moves a cursor over the map.
+		var pd := Settings.pad_device()
+		var st := Vector2(Input.get_joy_axis(pd, JOY_AXIS_LEFT_X), Input.get_joy_axis(pd, JOY_AXIS_LEFT_Y))
+		if st.length() > 0.2:
+			cursor = (cursor + st * st.length() * CURSOR_SPEED * delta).clamp(Vector2.ZERO, Vector2.ONE * WorldGen.SIZE)
 		_icons.queue_redraw()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("map"):
 		toggle()
+		get_viewport().set_input_as_handled()
+	elif visible and event is InputEventJoypadButton and event.pressed:
+		# Controller: A drops a waypoint at the cursor, X removes the nearest one, B closes.
+		match (event as InputEventJoypadButton).button_index:
+			JOY_BUTTON_A:
+				add_waypoint(cursor)
+			JOY_BUTTON_X:
+				remove_waypoint_near(cursor, 120.0)
+			JOY_BUTTON_B:
+				toggle()
 		get_viewport().set_input_as_handled()
 
 
@@ -228,6 +248,12 @@ func save_state() -> Dictionary:
 func draw_icons(c: Control) -> void:
 	var s := c.size.x / WorldGen.SIZE
 	var font := c.get_theme_default_font()
+	if Settings.using_pad:
+		var q := cursor * s
+		for d: Vector2 in [Vector2(1, 0), Vector2(0, 1)]:
+			c.draw_line(q - d * 12.0, q - d * 4.0, Color(1, 1, 1), 2.0)
+			c.draw_line(q + d * 4.0, q + d * 12.0, Color(1, 1, 1), 2.0)
+		_text(c, font, q + Vector2(14, -8), "A waypoint   X remove   B close", 12, Color(1, 1, 1))
 	for smp in main.player.inv.samples:
 		var g: float = smp.z
 		var col := Color(0.35, 0.35, 0.35, 0.8) if g <= 0.0 else Color(1.0, 0.9, 0.3).lerp(Color(1.0, 0.35, 0.1), clampf(g / 0.25, 0.0, 1.0))
@@ -249,11 +275,13 @@ func draw_icons(c: Control) -> void:
 			var tag: String = cl["name"] if mine_now else "%s  $%d" % [cl["name"], cl["price"]]
 			_text(c, font, q + Vector2(-30, float(cl["radius"]) * s + 13), tag, 12, ring.darkened(0.2))
 	var places := [["base", "Grandpa's cabin", Color(0.75, 0.3, 0.1)], ["town", "Sable Crossing", Color(0.25, 0.2, 0.5)], ["camp", "Last Chance camp", Color(0.4, 0.3, 0.2)],
-		["mine", "Old mine", Color(0.3, 0.3, 0.3)]]
+		["mine", "Old mine", Color(0.3, 0.3, 0.3)], ["garnet", "Garnet Beach", Color(0.6, 0.08, 0.15)]]
 	for pl in places:
+		if not world.sites.has(pl[0]):
+			continue
 		var site: Dictionary = world.sites[pl[0]]
 		var pos: Vector2 = site["pos"]
-		if pl[0] in ["base", "town"] or is_explored(pos.x, pos.y):
+		if pl[0] in ["base", "town", "garnet"] or is_explored(pos.x, pos.y):
 			var q := pos * s
 			c.draw_rect(Rect2(q - Vector2(5, 5), Vector2(10, 10)), pl[2])
 			_text(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05))

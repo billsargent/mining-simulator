@@ -11,6 +11,8 @@ const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
 const Settings = preload("res://scripts/core/settings.gd")
 const Claims = preload("res://scripts/core/claims.gd")
+const Garnets = preload("res://scripts/gold/garnets.gd")
+const Tex = preload("res://scripts/util/tex.gd")
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.8
@@ -27,6 +29,7 @@ const DIG_RADIUS := 0.85
 const FEED_RANGE := 4.5
 const PAN_PITCH := -0.22
 const LAMP_ENERGY := 5.0
+var lamp_boost := 1.0                 # 1.8 with the bright headlamp from the store
 
 var terrain: Terrain
 var deposits: DepositField
@@ -110,7 +113,7 @@ func apply_lamp() -> void:
 	var f := 1.0
 	if mine != null and Settings.hazards:
 		f = lerpf(0.1, 1.0, clampf(lamp_charge / 0.2, 0.0, 1.0))
-	_lamp.light_energy = LAMP_ENERGY * f
+	_lamp.light_energy = LAMP_ENERGY * lamp_boost * f
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -136,6 +139,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_target.scroll(self, -1)
 	elif event.is_action_pressed("headlamp"):
 		_lamp.visible = not _lamp.visible
+	elif event.is_action_pressed("scroll_up") or event.is_action_pressed("scroll_down"):
+		if pan_view == null and carrying == null and _target != null and _target.has_method("scroll"):
+			_target.scroll(self, 1 if event.is_action_pressed("scroll_up") else -1)
 
 
 func _physics_process(delta: float) -> void:
@@ -161,6 +167,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 	var target := Vector3.ZERO
 	if pan_view == null and not map_open:
+		var look := Settings.pad_look(delta)
+		if look != Vector2.ZERO:
+			rotate_y(-look.x)
+			camera.rotation.x = clampf(camera.rotation.x - look.y, -1.5, 1.5)
 		var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		var dir := transform.basis * Vector3(input.x, 0.0, input.y)
 		dir.y = 0.0
@@ -170,6 +180,8 @@ func _physics_process(delta: float) -> void:
 			speed *= WADE_FACTOR
 		if carrying != null:
 			speed *= CARRY_FACTOR
+			if carrying.has_method("carry_factor"):
+				speed *= carrying.carry_factor()
 		target = dir * speed
 		if Input.is_action_just_pressed("jump") and is_on_floor():
 			velocity.y = JUMP_VELOCITY
@@ -209,11 +221,14 @@ func _physics_process(delta: float) -> void:
 				return
 		else:
 			_try_pan()
-	if Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
+	if Input.is_action_just_pressed("carry") and _target != null and _target.has_method("toggle_lights"):
+		_target.toggle_lights()
+	elif Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
 		start_carry(_target)
 		return
 	if Input.is_action_just_pressed("dump"):
 		_dump_bucket()
+	_update_sieve(delta)
 	_update_prompt()
 
 
@@ -339,6 +354,11 @@ func _try_chip() -> void:
 		if randf() < (0.12 if rich else 0.06):
 			inv.add_specimen(randf_range(0.15, 0.6) * (1.4 if rich else 1.0))
 			hud.toast("A specimen: gold showing in the quartz! Collectors pay extra for these. Ship it whole.", Color(1.0, 0.85, 0.3), 6.0)
+	elif randf() < Garnets.MINE_CHANCE * float(res.get("rock", 1)):
+		# The schist round the veins carries a garnet now and then.
+		var ct := Garnets.carats(_garnet_rng)
+		inv.garnets.append(ct)
+		hud.toast("A garnet came out of the rock: %.2f carats. The assay office buys them." % ct, Color(0.95, 0.4, 0.45), 4.0)
 	mine.hazards.on_chip(_aim["position"])
 	refresh_hud()
 
@@ -468,6 +488,9 @@ func on_cleaned_out(machine) -> void:
 # --- Panning -----------------------------------------------------------------------
 
 func _try_pan() -> void:
+	if _sieve_phase > 0 or (inv.gear.has("sieve") and _on_beach() and inv.bucket.is_empty()):
+		_sieve_step()
+		return
 	if inv.bucket.is_empty() and inv.cons.is_empty():
 		hud.toast("Nothing to pan. Dig some gravel first (left mouse).")
 		return
@@ -590,6 +613,19 @@ func _update_prompt() -> void:
 		var tool_name: String = ["hammer and chisel", "miner's pick", "rotary hammer"][clampi(inv.tool_tier, 0, 2)]
 		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() else "")
 		return
+	if _sieve_phase == 1:
+		hud.set_prompt("Shaking the sieve under water...  the heavy garnets sink to the bottom")
+		return
+	if _sieve_phase == 2:
+		hud.set_prompt(Hud.key("E") + " Flip the sieve")
+		return
+	if _sieve_phase == 3:
+		return
+	if _on_beach() and inv.bucket.is_empty():
+		if inv.gear.has("sieve"):
+			parts.append(Hud.key("E") + " Scoop gravel into the garnet sieve")
+		else:
+			parts.append("Garnet Beach: buy a garnet sieve at the general store to look for garnets")
 	if _near_water():
 		if not inv.bucket.is_empty():
 			parts.append(Hud.key("E") + " Pan a shovelful")
@@ -631,32 +667,261 @@ func refresh_hud() -> void:
 	hud.set_goal(inv.next_goal())
 
 
+# --- Garnet sieve -------------------------------------------------------------------------------
+
+var _sieve: Node3D
+var _sieve_phase := 0          # 0 idle, 1 shaking, 2 ready to flip, 3 showing what came up
+var _sieve_t := 0.0
+var _sieve_found := []
+var _garnet_rng := RandomNumberGenerator.new()
+const SIEVE_SHAKE := 6.0
+
+
+func _on_beach() -> bool:
+	return mine == null and terrain != null and Garnets.on_beach(terrain.world, global_position.x, global_position.z)
+
+
+func _sieve_step() -> void:
+	match _sieve_phase:
+		0:
+			if _sieve == null:
+				_sieve = _make_sieve()
+				camera.add_child(_sieve)
+			_sieve.visible = true
+			_sieve.rotation = Vector3(-0.5, 0, 0)
+			_sieve.get_node("Rim").visible = true
+			_sieve.get_node("Screen").visible = true
+			for c in _sieve.get_node("Stones").get_children():
+				c.queue_free()
+			_shovel.visible = false
+			_sieve_phase = 1
+			_sieve_t = SIEVE_SHAKE
+			Sfx.play("splash", null, -4.0)
+		2:
+			var rich := Garnets.beach_richness(global_position.x, global_position.z)
+			_sieve_found = Garnets.sieve_load(_garnet_rng, rich)
+			_sieve_phase = 3
+			_sieve_t = 2.8
+			Sfx.play("dump", null, -6.0)
+			var tw := create_tween()
+			tw.tween_property(_sieve, "rotation:z", PI, 0.35)
+			tw.tween_callback(_show_garnets)
+
+
+func _show_garnets() -> void:
+	# The sieve comes away: what's left is the pile, upright, with the garnets on top.
+	_sieve.rotation = Vector3(0.75, 0.0, 0.0)
+	_sieve.get_node("Rim").visible = false
+	_sieve.get_node("Screen").visible = false
+	var stones: Node3D = _sieve.get_node("Stones")
+	var red := StandardMaterial3D.new()
+	red.albedo_color = Color(0.45, 0.03, 0.07)
+	red.metallic_specular = 1.0
+	red.roughness = 0.15
+	var i := 0
+	for ct in _sieve_found:
+		var m := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		var r := 0.01 + 0.006 * sqrt(ct)
+		sp.radius = r
+		sp.height = r * 1.6
+		sp.radial_segments = 6
+		sp.rings = 3
+		m.mesh = sp
+		m.material_override = red
+		var a := i * 2.4
+		m.position = Vector3(cos(a) * 0.018 * i, 0.035, sin(a) * 0.018 * i)    # on top of the pile, in the middle
+		stones.add_child(m)
+		i += 1
+	if _sieve_found.is_empty():
+		hud.toast("No garnets in that one. Try another scoop.", Color(0.85, 0.85, 0.85), 2.0)
+	else:
+		var total := 0.0
+		for ct in _sieve_found:
+			inv.garnets.append(ct)
+			total += ct
+		hud.toast("%d garnet%s on top of the pile: %.2f carats." % [_sieve_found.size(), "" if _sieve_found.size() == 1 else "s", total],
+			Color(0.95, 0.4, 0.45), 3.0)
+		Sfx.play("clink", null, -6.0)
+	refresh_hud()
+
+
+func _update_sieve(delta: float) -> void:
+	if _sieve_phase == 0:
+		return
+	if not _on_beach() and _sieve_phase < 3:
+		_end_sieve()
+		hud.toast("You left the beach. Sieve put away.")
+		return
+	_sieve_t -= delta
+	if _sieve_phase == 1:
+		var t := Time.get_ticks_msec() / 1000.0
+		_sieve.position = Vector3(0.0, -0.3, -0.5) + Vector3(sin(t * 34.0) * 0.012, 0.0, cos(t * 27.0) * 0.01)
+		_sieve.rotation.y = sin(t * 3.0) * 0.4
+		if _sieve_t <= 0.0:
+			_sieve_phase = 2
+			_sieve.position = Vector3(0.0, -0.3, -0.5)
+	elif _sieve_phase == 3 and _sieve_t <= 0.0:
+		_end_sieve()
+
+
+func _end_sieve() -> void:
+	_sieve_phase = 0
+	if _sieve != null:
+		_sieve.visible = false
+	_shovel.visible = carrying == null
+
+
+func _make_sieve() -> Node3D:
+	var root := Node3D.new()
+	root.position = Vector3(0.0, -0.3, -0.5)
+	var wood := StandardMaterial3D.new()
+	Tex.dress_as(wood, "rough_wood", 8.0, Color(0.52, 0.38, 0.24), 0.5)
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.19
+	rim.outer_radius = 0.215
+	rim.rings = 32
+	rim.ring_segments = 6
+	var rm := MeshInstance3D.new()
+	rm.mesh = rim
+	rm.material_override = wood
+	rm.scale = Vector3(1, 2.2, 1)
+	rm.name = "Rim"
+	root.add_child(rm)
+	var mesh := StandardMaterial3D.new()
+	mesh.albedo_color = Color(0.25, 0.25, 0.25)
+	mesh.metallic = 0.6
+	var screen := CylinderMesh.new()
+	screen.top_radius = 0.19
+	screen.bottom_radius = 0.19
+	screen.height = 0.004
+	var sm := MeshInstance3D.new()
+	sm.mesh = screen
+	sm.material_override = mesh
+	sm.position.y = -0.025
+	sm.name = "Screen"
+	root.add_child(sm)
+	var gravel := StandardMaterial3D.new()
+	Tex.dress_as(gravel, "gravel", 14.0, Color(0.55, 0.5, 0.45))
+	var pile := SphereMesh.new()
+	pile.radius = 0.17
+	pile.height = 0.08
+	var pm := MeshInstance3D.new()
+	pm.mesh = pile
+	pm.material_override = gravel
+	pm.position.y = -0.005
+	root.add_child(pm)
+	var stones := Node3D.new()
+	stones.name = "Stones"
+	root.add_child(stones)
+	for g in root.find_children("*", "GeometryInstance3D", true, false):
+		(g as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return root
+
+
+## The bright headlamp from the store: stronger, reaching further, a little wider.
+func set_bright_lamp(bright: bool) -> void:
+	lamp_boost = 1.8 if bright else 1.0
+	_lamp.spot_range = 60.0 if bright else 32.0
+	_lamp.spot_angle = 48.0 if bright else 42.0
+	_lamp.light_energy = LAMP_ENERGY * lamp_boost
+
+
 func _make_shovel() -> Node3D:
 	var root := Node3D.new()
 	root.position = Vector3(0.34, -0.36, -0.5)
 	root.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(10.0), deg_to_rad(-6.0))
+	# An old round-point shovel: worn ash handle, dark steel, rubbed bright at the cutting edge.
 	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.46, 0.31, 0.18)
-	wood.roughness = 0.75
+	Tex.dress_as(wood, "rough_wood", 6.0, Color(0.50, 0.36, 0.22), 0.5)
+	wood.roughness = 0.7
 	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.36, 0.37, 0.38)
-	steel.metallic = 0.8
-	steel.roughness = 0.45
+	Tex.dress_as(steel, "rust", 4.0, Color(0.50, 0.46, 0.42), 0.6)
+	steel.metallic = 0.45
+	steel.roughness = 0.55
+	var bright := StandardMaterial3D.new()
+	bright.albedo_color = Color(0.62, 0.62, 0.60)
+	bright.metallic = 0.9
+	bright.roughness = 0.3
 	var shaft := CylinderMesh.new()
 	shaft.top_radius = 0.016
 	shaft.bottom_radius = 0.018
-	shaft.height = 1.0
-	shaft.radial_segments = 10
-	root.add_child(_part(shaft, wood, Vector3(0, 0, -0.25), Vector3(deg_to_rad(90.0), 0, 0)))
-	var blade := BoxMesh.new()
-	blade.size = Vector3(0.22, 0.008, 0.27)
-	root.add_child(_part(blade, steel, Vector3(0, -0.012, -0.86), Vector3(deg_to_rad(-12.0), 0, 0)))
+	shaft.height = 0.98
+	shaft.radial_segments = 12
+	root.add_child(_part(shaft, wood, Vector3(0, 0, -0.24), Vector3(deg_to_rad(90.0), 0, 0)))
+	# Steel socket where the handle goes into the blade, tapering down.
+	var sock := CylinderMesh.new()
+	sock.top_radius = 0.021
+	sock.bottom_radius = 0.03
+	sock.height = 0.16
+	sock.radial_segments = 12
+	root.add_child(_part(sock, steel, Vector3(0, -0.004, -0.78), Vector3(deg_to_rad(90.0), 0, 0)))
+	var blade := MeshInstance3D.new()
+	blade.mesh = _shovel_blade(false)
+	blade.material_override = steel
+	blade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blade.position = Vector3(0, -0.01, -0.85)
+	blade.rotation = Vector3(deg_to_rad(-14.0), 0, 0)
+	root.add_child(blade)
+	var edge := MeshInstance3D.new()
+	edge.mesh = _shovel_blade(true)
+	edge.material_override = bright
+	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blade.add_child(edge)
+	# D-handle: two cheeks from a ferrule and a cross grip.
+	var fer := CylinderMesh.new()
+	fer.top_radius = 0.02
+	fer.bottom_radius = 0.02
+	fer.height = 0.05
+	root.add_child(_part(fer, steel, Vector3(0, 0, 0.25), Vector3(deg_to_rad(90.0), 0, 0)))
+	for side in [-1.0, 1.0]:
+		var cheek := BoxMesh.new()
+		cheek.size = Vector3(0.012, 0.02, 0.13)
+		root.add_child(_part(cheek, wood, Vector3(side * 0.035, 0, 0.32), Vector3(0, deg_to_rad(side * 18.0), 0)))
 	var grip := CylinderMesh.new()
-	grip.top_radius = 0.022
-	grip.bottom_radius = 0.022
-	grip.height = 0.12
-	root.add_child(_part(grip, wood, Vector3(0, 0, 0.27), Vector3(0, 0, deg_to_rad(90.0))))
+	grip.top_radius = 0.016
+	grip.bottom_radius = 0.016
+	grip.height = 0.1
+	root.add_child(_part(grip, wood, Vector3(0, 0, 0.385), Vector3(0, 0, deg_to_rad(90.0))))
 	return root
+
+
+## The blade: dished across, pointed at the tip, with a little thickness. With `edge_only`,
+## just the worn strip along the cutting edge, raised a hair so it sits on top.
+func _shovel_blade(edge_only: bool) -> ArrayMesh:
+	const W := 0.115     # half width
+	const L := 0.29      # length, socket to point
+	const DISH := 0.028  # how deep the dish is at the middle
+	var cols := 9
+	var rows := 12
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var shape := func(u: float, v: float, lift: float) -> Vector3:
+		# v 0 at the socket, 1 at the point. The width narrows to the point over the last 40%.
+		var half := W * (1.0 - smoothstep(0.55, 1.0, v) * 0.9) * (0.82 + 0.18 * smoothstep(0.0, 0.2, v))
+		var x := u * half
+		var y := DISH * (u * u) * (1.0 - 0.6 * v) + lift
+		return Vector3(x, y, -v * L)
+	for face in [0, 1]:
+		var off := 0.0 if face == 0 else -0.004
+		for j in rows:
+			var v0 := float(j) / rows
+			var v1 := float(j + 1) / rows
+			if edge_only and v1 < 0.8:
+				continue
+			for i in cols:
+				var u0 := -1.0 + 2.0 * i / cols
+				var u1 := -1.0 + 2.0 * (i + 1) / cols
+				var lift := off + (0.0015 if edge_only else 0.0)
+				var a: Vector3 = shape.call(u0, v0, lift)
+				var b: Vector3 = shape.call(u1, v0, lift)
+				var c: Vector3 = shape.call(u0, v1, lift)
+				var d: Vector3 = shape.call(u1, v1, lift)
+				var tris := [a, c, b, b, c, d] if face == 0 else [a, b, c, b, d, c]
+				for p in tris:
+					st.add_vertex(p)
+	st.generate_normals()
+	return st.commit()
 
 
 func _part(mesh: Mesh, mat: Material, pos: Vector3, rot: Vector3) -> MeshInstance3D:
