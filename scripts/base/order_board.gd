@@ -22,6 +22,7 @@ const ITEMS = [
 	["trailer", "Flatbed trailer", 800, "the pickup tows it; room for two more machines"],
 	["trommel", "Trommel", 3500, "washes and screens gravel by the ton; runs off the pump like the high banker"],
 	["excavator", "Mini-excavator", 6000, "drive it beside a trommel or high banker and dig a bucket at a time (left mouse)"],
+	["sieve", "Garnet sieve", 35, "shake beach gravel under water at Garnet Beach, then flip it: the garnets sit on top"],
 	["lantern", "Lantern", 40, "a warm glow about 7 m around; set it down anywhere (up to 6)"],
 	["flood", "Work light", 250, "an LED flood on a tripod, about 25 m ahead; aim it with the mouse wheel (up to 4)"],
 	["tower", "Light tower", 2200, "four lamps on a mast light a whole dig site, about 50 m round (up to 2)"],
@@ -132,6 +133,9 @@ func interact(player) -> void:
 		"camp":
 			inv.gear["camps"] = int(inv.gear.get("camps", 0)) + 1
 			said = "A camp tent, by the shed at your cabin. Carry it (F) wherever you want a camp and set it down."
+		"sieve":
+			inv.gear["sieve"] = true
+			said = "A garnet sieve. Garnet Beach is on the Big Sable River, east of town (it's on your map)."
 		"lantern", "flood", "tower":
 			inv.gear[id] = int(inv.gear.get(id, 0)) + 1
 			said = "%s, waiting by the shed at your cabin. Carry it (F) where you need light; E turns it on and off." % it[1]

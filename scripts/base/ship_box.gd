@@ -22,6 +22,8 @@ func build() -> void:
 	Parts.label(self, "GOLD BUYER", Vector3(-0.3, 1.25, 0.05), 24)
 	Parts.collider(self, Vector3(1.7, 1.0, 0.65), Vector3(0, 0.5, 0))
 
+const Garnets = preload("res://scripts/gold/garnets.gd")
+
 
 func _total(inv) -> int:
 	var total := 0
@@ -31,16 +33,18 @@ func _total(inv) -> int:
 		total += Market.nugget_value(m)
 	for g in inv.specimens:
 		total += Market.specimen_value(g)
+	for ct in inv.garnets:
+		total += Garnets.value(ct)
 	return total
 
 
 func _empty(inv) -> bool:
-	return inv.bars.is_empty() and inv.nuggets.is_empty() and inv.specimens.is_empty()
+	return inv.bars.is_empty() and inv.nuggets.is_empty() and inv.specimens.is_empty() and inv.garnets.is_empty()
 
 
 func _list(inv) -> String:
 	var parts := PackedStringArray()
-	for item in [[inv.bars.size(), "bar"], [inv.nuggets.size(), "nugget"], [inv.specimens.size(), "specimen"]]:
+	for item in [[inv.bars.size(), "bar"], [inv.nuggets.size(), "nugget"], [inv.specimens.size(), "specimen"], [inv.garnets.size(), "garnet"]]:
 		if item[0] > 0:
 			parts.append("%d %s%s" % [item[0], item[1], "" if item[0] == 1 else "s"])
 	return ", ".join(parts)
@@ -50,7 +54,7 @@ func prompt(player) -> String:
 	var inv = player.inv
 	var t := "[b]Assay office[/b]   gold today: $%.2f a gram  (%s on yesterday)" % [Market.price(), Market.trend()]
 	if _empty(inv):
-		t += "\nBring bars from your furnace, or nuggets and specimens."
+		t += "\nBring bars from your furnace, or nuggets, specimens and garnets."
 	else:
 		t += "\n%s Sell %s for $%d" % [Hud.key("E"), _list(inv), _total(inv)]
 	if inv.vial_grams() > 0.0:
@@ -70,5 +74,6 @@ func interact(player) -> void:
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
 	inv.specimens = PackedFloat32Array()
+	inv.garnets = PackedFloat32Array()
 	inv.complete_goal("sold")
 	player.hud.toast("%s:  +$%d" % [msg, total], Color(0.6, 1.0, 0.6), 5.0)

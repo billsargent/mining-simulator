@@ -11,6 +11,7 @@ const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
 const Settings = preload("res://scripts/core/settings.gd")
 const Claims = preload("res://scripts/core/claims.gd")
+const Garnets = preload("res://scripts/gold/garnets.gd")
 const Tex = preload("res://scripts/util/tex.gd")
 
 const WALK_SPEED := 4.0
@@ -227,6 +228,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if Input.is_action_just_pressed("dump"):
 		_dump_bucket()
+	_update_sieve(delta)
 	_update_prompt()
 
 
@@ -352,6 +354,11 @@ func _try_chip() -> void:
 		if randf() < (0.12 if rich else 0.06):
 			inv.add_specimen(randf_range(0.15, 0.6) * (1.4 if rich else 1.0))
 			hud.toast("A specimen: gold showing in the quartz! Collectors pay extra for these. Ship it whole.", Color(1.0, 0.85, 0.3), 6.0)
+	elif randf() < Garnets.MINE_CHANCE * float(res.get("rock", 1)):
+		# The schist round the veins carries a garnet now and then.
+		var ct := Garnets.carats(_garnet_rng)
+		inv.garnets.append(ct)
+		hud.toast("A garnet came out of the rock: %.2f carats. The assay office buys them." % ct, Color(0.95, 0.4, 0.45), 4.0)
 	mine.hazards.on_chip(_aim["position"])
 	refresh_hud()
 
@@ -481,6 +488,9 @@ func on_cleaned_out(machine) -> void:
 # --- Panning -----------------------------------------------------------------------
 
 func _try_pan() -> void:
+	if _sieve_phase > 0 or (inv.gear.has("sieve") and _on_beach() and inv.bucket.is_empty()):
+		_sieve_step()
+		return
 	if inv.bucket.is_empty() and inv.cons.is_empty():
 		hud.toast("Nothing to pan. Dig some gravel first (left mouse).")
 		return
@@ -603,6 +613,19 @@ func _update_prompt() -> void:
 		var tool_name: String = ["hammer and chisel", "miner's pick", "rotary hammer"][clampi(inv.tool_tier, 0, 2)]
 		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() else "")
 		return
+	if _sieve_phase == 1:
+		hud.set_prompt("Shaking the sieve under water...  the heavy garnets sink to the bottom")
+		return
+	if _sieve_phase == 2:
+		hud.set_prompt(Hud.key("E") + " Flip the sieve")
+		return
+	if _sieve_phase == 3:
+		return
+	if _on_beach() and inv.bucket.is_empty():
+		if inv.gear.has("sieve"):
+			parts.append(Hud.key("E") + " Scoop gravel into the garnet sieve")
+		else:
+			parts.append("Garnet Beach: buy a garnet sieve at the general store to look for garnets")
 	if _near_water():
 		if not inv.bucket.is_empty():
 			parts.append(Hud.key("E") + " Pan a shovelful")
@@ -642,6 +665,158 @@ func refresh_hud() -> void:
 			extra.append("Air   %d%%   get back to good air!" % roundi(air * 100.0))
 	hud.set_status(inv, inv.bucket_capacity(), clock, extra)
 	hud.set_goal(inv.next_goal())
+
+
+# --- Garnet sieve -------------------------------------------------------------------------------
+
+var _sieve: Node3D
+var _sieve_phase := 0          # 0 idle, 1 shaking, 2 ready to flip, 3 showing what came up
+var _sieve_t := 0.0
+var _sieve_found := []
+var _garnet_rng := RandomNumberGenerator.new()
+const SIEVE_SHAKE := 6.0
+
+
+func _on_beach() -> bool:
+	return mine == null and terrain != null and Garnets.on_beach(terrain.world, global_position.x, global_position.z)
+
+
+func _sieve_step() -> void:
+	match _sieve_phase:
+		0:
+			if _sieve == null:
+				_sieve = _make_sieve()
+				camera.add_child(_sieve)
+			_sieve.visible = true
+			_sieve.rotation = Vector3(-0.5, 0, 0)
+			_sieve.get_node("Rim").visible = true
+			_sieve.get_node("Screen").visible = true
+			for c in _sieve.get_node("Stones").get_children():
+				c.queue_free()
+			_shovel.visible = false
+			_sieve_phase = 1
+			_sieve_t = SIEVE_SHAKE
+			Sfx.play("splash", null, -4.0)
+		2:
+			var rich := Garnets.beach_richness(global_position.x, global_position.z)
+			_sieve_found = Garnets.sieve_load(_garnet_rng, rich)
+			_sieve_phase = 3
+			_sieve_t = 2.8
+			Sfx.play("dump", null, -6.0)
+			var tw := create_tween()
+			tw.tween_property(_sieve, "rotation:z", PI, 0.35)
+			tw.tween_callback(_show_garnets)
+
+
+func _show_garnets() -> void:
+	# The sieve comes away: what's left is the pile, upright, with the garnets on top.
+	_sieve.rotation = Vector3(0.75, 0.0, 0.0)
+	_sieve.get_node("Rim").visible = false
+	_sieve.get_node("Screen").visible = false
+	var stones: Node3D = _sieve.get_node("Stones")
+	var red := StandardMaterial3D.new()
+	red.albedo_color = Color(0.45, 0.03, 0.07)
+	red.metallic_specular = 1.0
+	red.roughness = 0.15
+	var i := 0
+	for ct in _sieve_found:
+		var m := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		var r := 0.01 + 0.006 * sqrt(ct)
+		sp.radius = r
+		sp.height = r * 1.6
+		sp.radial_segments = 6
+		sp.rings = 3
+		m.mesh = sp
+		m.material_override = red
+		var a := i * 2.4
+		m.position = Vector3(cos(a) * 0.018 * i, 0.035, sin(a) * 0.018 * i)    # on top of the pile, in the middle
+		stones.add_child(m)
+		i += 1
+	if _sieve_found.is_empty():
+		hud.toast("No garnets in that one. Try another scoop.", Color(0.85, 0.85, 0.85), 2.0)
+	else:
+		var total := 0.0
+		for ct in _sieve_found:
+			inv.garnets.append(ct)
+			total += ct
+		hud.toast("%d garnet%s on top of the pile: %.2f carats." % [_sieve_found.size(), "" if _sieve_found.size() == 1 else "s", total],
+			Color(0.95, 0.4, 0.45), 3.0)
+		Sfx.play("clink", null, -6.0)
+	refresh_hud()
+
+
+func _update_sieve(delta: float) -> void:
+	if _sieve_phase == 0:
+		return
+	if not _on_beach() and _sieve_phase < 3:
+		_end_sieve()
+		hud.toast("You left the beach. Sieve put away.")
+		return
+	_sieve_t -= delta
+	if _sieve_phase == 1:
+		var t := Time.get_ticks_msec() / 1000.0
+		_sieve.position = Vector3(0.0, -0.3, -0.5) + Vector3(sin(t * 34.0) * 0.012, 0.0, cos(t * 27.0) * 0.01)
+		_sieve.rotation.y = sin(t * 3.0) * 0.4
+		if _sieve_t <= 0.0:
+			_sieve_phase = 2
+			_sieve.position = Vector3(0.0, -0.3, -0.5)
+	elif _sieve_phase == 3 and _sieve_t <= 0.0:
+		_end_sieve()
+
+
+func _end_sieve() -> void:
+	_sieve_phase = 0
+	if _sieve != null:
+		_sieve.visible = false
+	_shovel.visible = carrying == null
+
+
+func _make_sieve() -> Node3D:
+	var root := Node3D.new()
+	root.position = Vector3(0.0, -0.3, -0.5)
+	var wood := StandardMaterial3D.new()
+	Tex.dress_as(wood, "rough_wood", 8.0, Color(0.52, 0.38, 0.24), 0.5)
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.19
+	rim.outer_radius = 0.215
+	rim.rings = 32
+	rim.ring_segments = 6
+	var rm := MeshInstance3D.new()
+	rm.mesh = rim
+	rm.material_override = wood
+	rm.scale = Vector3(1, 2.2, 1)
+	rm.name = "Rim"
+	root.add_child(rm)
+	var mesh := StandardMaterial3D.new()
+	mesh.albedo_color = Color(0.25, 0.25, 0.25)
+	mesh.metallic = 0.6
+	var screen := CylinderMesh.new()
+	screen.top_radius = 0.19
+	screen.bottom_radius = 0.19
+	screen.height = 0.004
+	var sm := MeshInstance3D.new()
+	sm.mesh = screen
+	sm.material_override = mesh
+	sm.position.y = -0.025
+	sm.name = "Screen"
+	root.add_child(sm)
+	var gravel := StandardMaterial3D.new()
+	Tex.dress_as(gravel, "gravel", 14.0, Color(0.55, 0.5, 0.45))
+	var pile := SphereMesh.new()
+	pile.radius = 0.17
+	pile.height = 0.08
+	var pm := MeshInstance3D.new()
+	pm.mesh = pile
+	pm.material_override = gravel
+	pm.position.y = -0.005
+	root.add_child(pm)
+	var stones := Node3D.new()
+	stones.name = "Stones"
+	root.add_child(stones)
+	for g in root.find_children("*", "GeometryInstance3D", true, false):
+		(g as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return root
 
 
 ## The bright headlamp from the store: stronger, reaching further, a little wider.

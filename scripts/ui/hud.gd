@@ -194,6 +194,11 @@ func set_status(inv, bucket_capacity: int, clock: String = "", extra: PackedStri
 	lines.append(gold)
 	if not inv.specimens.is_empty():
 		lines.append("Specimens   %d  (gold in quartz)" % inv.specimens.size())
+	if not inv.garnets.is_empty():
+		var ct := 0.0
+		for g in inv.garnets:
+			ct += g
+		lines.append("Garnets   %d  (%.1f carats)" % [inv.garnets.size(), ct])
 	if not inv.bars.is_empty():
 		lines.append("Bars   %d  (%.2f g)" % [inv.bars.size(), inv.bar_grams()])
 	lines.append_array(extra)
