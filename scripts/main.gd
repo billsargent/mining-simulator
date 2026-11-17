@@ -1704,6 +1704,11 @@ func _selftest() -> void:
 		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
 			pad_ok = false
 	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var slot2 := InputEventJoypadButton.new()
+	slot2.device = 2
+	slot2.button_index = JOY_BUTTON_X
+	slot2.pressed = true
+	_check("a controller in any slot works", InputMap.event_is_action(slot2, "interact"))
 	var xb := InputEventJoypadButton.new()
 	xb.button_index = JOY_BUTTON_X
 	xb.pressed = true

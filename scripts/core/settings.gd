@@ -161,9 +161,16 @@ static func note_input(event: InputEvent) -> bool:
 	return true
 
 
+## The controller to read sticks from: the first one connected (Windows may not number it 0).
+static func pad_device() -> int:
+	var pads := Input.get_connected_joypads()
+	return pads[0] if not pads.is_empty() else 0
+
+
 ## The right stick, with a dead zone, curved for fine aim; zero when no controller is in use.
 static func stick_look() -> Vector2:
-	var v := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
+	var d := pad_device()
+	var v := Vector2(Input.get_joy_axis(d, JOY_AXIS_RIGHT_X), Input.get_joy_axis(d, JOY_AXIS_RIGHT_Y))
 	var l := v.length()
 	if l < STICK_DEAD:
 		return Vector2.ZERO
@@ -255,11 +262,13 @@ static func apply_binds() -> void:
 			spec = pad_button_for(action)
 		if spec is Array:
 			var jm := InputEventJoypadMotion.new()
+			jm.device = -1          # any controller, whichever slot Windows gives it
 			jm.axis = spec[0]
 			jm.axis_value = spec[1]
 			InputMap.action_add_event(action, jm)
 		else:
 			var jb := InputEventJoypadButton.new()
+			jb.device = -1
 			jb.button_index = spec
 			InputMap.action_add_event(action, jb)
 		InputMap.action_set_deadzone(action, 0.25)

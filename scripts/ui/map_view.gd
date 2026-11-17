@@ -150,7 +150,8 @@ func _process(delta: float) -> void:
 		reveal_around(main.focus_position())
 	if visible:
 		# Controller: the left stick moves a cursor over the map.
-		var st := Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+		var pd := Settings.pad_device()
+		var st := Vector2(Input.get_joy_axis(pd, JOY_AXIS_LEFT_X), Input.get_joy_axis(pd, JOY_AXIS_LEFT_Y))
 		if st.length() > 0.2:
 			cursor = (cursor + st * st.length() * CURSOR_SPEED * delta).clamp(Vector2.ZERO, Vector2.ONE * WorldGen.SIZE)
 		_icons.queue_redraw()
