@@ -1479,18 +1479,21 @@ func _selftest() -> void:
 	inv.add_gold(PackedFloat32Array([0.05, 0.5]))
 	inv.ore.clear()
 	inv.ore.append(Paydirt.new())
+	inv.garnets = PackedFloat32Array([1.25])
 	var jars_before: int = inv.cons.size()
 	base.chest.interact(player)
 	_check("the chest takes your goods", inv.bars.is_empty() and inv.nuggets.is_empty() and inv.vial.is_empty() and inv.ore.is_empty()
-		and inv.cons.is_empty() and inv.chest_bars.size() == 1 and inv.chest_nuggets.size() == 1 and inv.chest_ore.size() == 1)
+		and inv.cons.is_empty() and inv.chest_bars.size() == 1 and inv.chest_nuggets.size() == 1 and inv.chest_ore.size() == 1
+		and inv.garnets.is_empty() and inv.chest_garnets.size() == 1)
 	save_now()
 	var saved_chest: Dictionary = SaveGame.read().get("inventory", {}).get("chest", {})
-	_check("the chest is saved", (saved_chest.get("bars", []) as Array).size() == 1 and (saved_chest.get("cons", []) as Array).size() == jars_before)
+	_check("the chest is saved", (saved_chest.get("bars", []) as Array).size() == 1 and (saved_chest.get("cons", []) as Array).size() == jars_before
+		and (saved_chest.get("garnets", []) as PackedFloat32Array).size() == 1)
 	SaveGame.delete()
 	base.chest.scroll(player, 1)
 	base.chest.interact(player)
 	_check("and gives them back", inv.bars.size() == 1 and inv.nuggets.size() == 1 and inv.ore.size() == 1 and inv.cons.size() == jars_before
-		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001)
+		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001 and inv.garnets.size() == 1)
 	_check("the bunk is inside", base.to_local(base.bed.global_position).z < HomeBase.CABIN_Z)
 
 	# The suction dredge: bought with its permit, floated on your claim, it feeds itself.
