@@ -39,6 +39,7 @@ const Dredge = preload("res://scripts/machines/dredge.gd")
 const DryWasher = preload("res://scripts/machines/dry_washer.gd")
 const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
+const Trailer = preload("res://scripts/vehicles/trailer.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
@@ -399,6 +400,8 @@ func spawn_vehicle(kind: String):
 			v = Atv.new()
 		"truck":
 			v = Truck.new()
+		"trailer":
+			v = Trailer.new()
 		_:
 			return null
 	add_child(v)
@@ -426,6 +429,10 @@ func deliver(item: String) -> void:
 	if item == "high_banker":
 		spawn_machine("high_banker").place_at(base.slot_position(1), base.slot_yaw())
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
+	elif item == "trailer":
+		var t := _parked(1)
+		t.origin += t.basis.z * 6.5
+		spawn_vehicle("trailer").global_transform = t
 	elif item == "dry_washer":
 		spawn_machine("dry_washer").place_at(base.to_global(Vector3(-10.8, 0.0, 2.0)), base.slot_yaw())
 	elif item == "dredge":
@@ -788,6 +795,15 @@ func _apply_view() -> void:
 				dwm.place_at(Vector3(dwp.x, 0.0, dwp.y), 0.6)
 				from = Vector3(dwp.x, 0.0, dwp.y) + Vector3(2.5, 0.0, 2.5)
 				at = dwm.global_position + Vector3(0, 0.6, 0)
+			"trailer":
+				if vehicle_of("trailer") == null:
+					deliver("trailer")
+				var tk = vehicle_of("truck")
+				var tl = vehicle_of("trailer")
+				if tl.towed_by == null:
+					tl.hitch(tk)
+				from = tk.to_global(Vector3(-6.5, 0.0, 6.0))
+				at = tl.global_position + Vector3(0, 0.8, 0)
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -1289,6 +1305,48 @@ func _selftest() -> void:
 	_check("the dry washer runs and catches gold", dw.is_running() and dw.processed_total == 3 and dw.caught.size() > 0)
 	_check("air loses more fine gold than water", Recovery.catch_chance(0.002, 7.0, DryWasher.DRY_PENALTY) < Recovery.catch_chance(0.002, 7.0))
 	_check("the metal detector reads the dry wash", deposits.richness(wash.x, wash.z) > 0.8)
+
+	# The trailer: hitch it in one action and tow it behind the pickup.
+	var pickup = vehicle_of("truck")
+	for cargo_item in pickup.cargo:
+		if cargo_item != null:
+			pickup.unload_cargo(cargo_item)
+	pickup.freeze = true
+	pickup.global_transform = _parked(1)
+	inv.money += 800
+	town.store.select("trailer")
+	town.store.interact(player)
+	var trailer = vehicle_of("trailer")
+	_check("the trailer is delivered behind the pickup", trailer != null)
+	player.global_position = trailer.to_global(Vector3(1.5, 0.0, -2.0))
+	trailer.interact(player)
+	_check("hitching is one action", trailer.towed_by == pickup)
+	var tr_start: Vector3 = trailer.global_position
+	pickup.enter(player)
+	Input.action_press("move_forward")
+	for i in 150:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	Input.action_press("jump")
+	for i in 60:
+		await get_tree().physics_frame
+	Input.action_release("jump")
+	var gap: float = trailer.to_global(Trailer.TONGUE).distance_to(pickup.to_global(Trailer.BALL))
+	print("  towed %.1f m; coupler %.2f m from the ball; trailer up %.2f" % [tr_start.distance_to(trailer.global_position), gap, trailer.global_basis.y.dot(Vector3.UP)])
+	_check("the trailer follows on the ball and stays upright", tr_start.distance_to(trailer.global_position) > 4.0 and gap < 0.3
+		and trailer.global_basis.y.dot(Vector3.UP) > 0.9)
+	pickup.exit()
+	for i in 5:
+		await get_tree().physics_frame
+	trailer.interact(player)
+	_check("unhitching", trailer.towed_by == null)
+	save_now()
+	var saved_trailer := false
+	for vd in SaveGame.read().get("vehicles", []):
+		if vd.get("kind", "") == "trailer":
+			saved_trailer = true
+	_check("the trailer is saved", saved_trailer)
+	SaveGame.delete()
 
 	# Walk.
 	player.global_position = base.spawn_point

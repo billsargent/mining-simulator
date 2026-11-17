@@ -149,6 +149,11 @@ func _physics_process(delta: float) -> void:
 	_drive(delta)
 
 
+## Whether the wheels hold the vehicle still when nothing drives it (a towed trailer rolls).
+func _hold_still() -> bool:
+	return true
+
+
 func _driver_controls() -> void:
 	if driver.map_open:
 		return
@@ -249,7 +254,7 @@ func _drive(dt: float) -> void:
 				lon_f = throttle * brake_force * 0.25            # pressing against the motion brakes
 			else:
 				lon_f = throttle * engine_force * 0.25 * drive_scale
-		elif absf(speed) < 1.0:
+		elif absf(speed) < 1.0 and _hold_still():
 			lon_f = -lon * mass * 0.25 / dt * 0.3                # hold still on slopes
 		else:
 			lon_f = -lon * mass * 0.02                           # rolling resistance
