@@ -23,6 +23,7 @@ const WorldGen = preload("res://scripts/world/world_gen.gd")
 const WorldTerrain = preload("res://scripts/world/world_terrain.gd")
 const Rivers = preload("res://scripts/world/rivers.gd")
 const Scatter = preload("res://scripts/world/scatter.gd")
+const Roadside = preload("res://scripts/world/roadside.gd")
 const Landmarks = preload("res://scripts/world/landmarks.gd")
 const DayNight = preload("res://scripts/world/day_night.gd")
 const DepositField = preload("res://scripts/gold/deposit_field.gd")
@@ -64,6 +65,7 @@ const SEED := 1849
 const AUTOSAVE_SECONDS := 60.0
 const MAP_PX := 512
 
+var roadside
 var world: WorldGen
 var deposits: DepositField
 var terrain: WorldTerrain
@@ -150,6 +152,9 @@ func _ready() -> void:
 	var landmarks := Landmarks.new()
 	add_child(landmarks)
 	landmarks.build(terrain, world.sites)
+	roadside = Roadside.new()
+	add_child(roadside)
+	roadside.build(world, terrain)
 	weather = Weather.new()
 	add_child(weather)
 	weather.setup(day_night)
@@ -377,6 +382,9 @@ func rescue_from_mine(message: String) -> void:
 func mark_place(where: String, label: String) -> void:
 	if where.begins_with("site:"):
 		map_view.add_mark(world.sites[where.substr(5)]["pos"], label)
+	elif where.begins_with("pos:"):
+		var xy := where.substr(4).split(",")
+		map_view.add_mark(Vector2(float(xy[0]), float(xy[1])), label)
 	else:
 		map_view.add_mark(rich_spot(where), label)
 
@@ -934,6 +942,17 @@ func _apply_view() -> void:
 	elif _opts.has("view"):
 		var from := Vector3.ZERO
 		var at := Vector3.ZERO
+		var vname: String = _opts["view"]
+		if vname.begins_with("place_"):
+			# --view=place_<kind>, e.g. place_ruin_cabin, place_sign: the first place of that kind.
+			for pl in world.places:
+				if pl["kind"] == vname.substr(6):
+					var pp: Vector2 = pl["pos"]
+					var rp: Vector2 = pl["road"]
+					var back := pp + (rp - pp).normalized() * 11.0 + (rp - pp).normalized().orthogonal() * 4.0
+					from = Vector3(back.x, 0.0, back.y)
+					at = Vector3(pp.x, terrain.height_at(pp.x, pp.y) + 1.0, pp.y)
+					break
 		match _opts["view"]:
 			"base":
 				from = base.to_global(Vector3(-3.0, 0.0, 15.0))
@@ -1831,6 +1850,28 @@ func _selftest() -> void:
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)
 	Settings.reset_binds()
+	# Roadside places: signposts and old places along the roads, each old place hiding something.
+	var n_signs := world.places.filter(func(pl): return pl["kind"] == "sign").size()
+	var n_old := world.places.size() - n_signs
+	print("  roadside: %d signposts, %d old places, %d hidden stashes" % [n_signs, n_old, roadside.stashes.size()])
+	_check("signposts and old places line the roads", n_signs >= 6 and n_old >= 10 and roadside.stashes.size() >= 1)
+	var rs_money: int = inv.money
+	var found_any := false
+	var marks_before: int = map_view.marks.size()
+	for rc in roadside.caches:
+		if rc in roadside.stashes:
+			continue
+		rc.interact(player)
+		if player.hud.note_open():
+			player.hud.hide_note()
+		found_any = true
+	_check("searching the old places finds things", found_any and inv.money > rs_money and map_view.marks.size() > marks_before)
+	var again: int = inv.money
+	roadside.caches[0].interact(player)
+	_check("a searched place is empty after", inv.money == again and inv.finds.has(roadside.caches[0].id))
+	var st = roadside.stashes[0]
+	st.interact(player)
+	_check("a hidden stash pays well", inv.finds.has(st.id))
 	_check("keys reset", Settings.key_for("interact") == KEY_E and Settings.key_for("carry") == KEY_F and Hud.key("E").contains("E"))
 
 	# Garnets: buy a sieve, stand on Garnet Beach, scoop, shake, flip; sell them in town.
