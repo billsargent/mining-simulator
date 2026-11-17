@@ -150,7 +150,13 @@ func _physics_process(delta: float) -> void:
 	if driving != null:
 		global_position = driving.seat_position()
 		velocity = Vector3.ZERO
-		hud.set_prompt("[b]%s[/b]   %d km/h" % [driving.display_name, roundi(driving.speed_kmh())])
+		var line := "[b]%s[/b]   %d km/h" % [driving.display_name, roundi(driving.speed_kmh())]
+		if driving.has_method("action"):
+			line += "
+" + driving.drive_hint()
+			if Input.is_action_just_pressed("dig") and Settings.mouse_captured() and not map_open:
+				driving.action(self)
+		hud.set_prompt(line)
 		return
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
