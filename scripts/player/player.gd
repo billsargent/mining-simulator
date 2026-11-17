@@ -89,7 +89,7 @@ func _ready() -> void:
 	_shovel = _make_shovel()
 	camera.add_child(_shovel)
 	_shovel_rest = _shovel.transform
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Settings.capture_mouse()
 	refresh_hud()
 
 
@@ -117,7 +117,7 @@ func apply_lamp() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if driving != null or map_open:
 		return
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var captured := Settings.mouse_captured()
 	if event is InputEventMouseMotion:
 		if captured and pan_view == null and _look_grace <= 0.0:
 			var motion := event as InputEventMouseMotion
@@ -126,7 +126,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		var mb := event as InputEventMouseButton
 		if not captured:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			Settings.capture_mouse()
 			grace()
 			get_viewport().set_input_as_handled()
 			return
@@ -180,7 +180,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_aim = _look_hit()
 	_target = _find_interactable(_aim)
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var captured := Settings.mouse_captured()
 	if mine != null and global_position.y < mine.global_position.y - 3.0:
 		global_position = mine.spawn_point()      # safety net: never fall out of the mine
 		velocity = Vector3.ZERO
@@ -376,7 +376,7 @@ func _update_carry() -> void:
 	var hit_node: Node = null
 	if not hit.is_empty():
 		hit_node = hit.get("collider") as Node
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var captured := Settings.mouse_captured()
 	var pressed := captured and (Input.is_action_just_pressed("dig") or Input.is_action_just_pressed("carry"))
 	# Aiming at a vehicle with room: load it on.
 	if hit_node != null and hit_node.is_in_group("vehicles") and from.distance_to(hit["position"]) < 4.0:
@@ -586,6 +586,7 @@ func refresh_hud() -> void:
 	var extra := PackedStringArray()
 	if mine == null and not Claims.list.is_empty():
 		var p := global_position if driving == null else (driving.global_position as Vector3)
+		extra.append(terrain.world.region_name(p.x, p.z))
 		var c := Claims.at(p.x, p.z)
 		if c.is_empty():
 			extra.append("Public land: pan and shovel only")

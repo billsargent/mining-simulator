@@ -96,7 +96,7 @@ func open() -> void:
 func _resume() -> void:
 	visible = false
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Settings.capture_mouse()
 	main.player.grace()
 
 

@@ -5,6 +5,7 @@ extends RigidBody3D
 ## upright, Space brakes. Parked vehicles freeze in place, so they stay put while the ground
 ## under them isn't loaded. Cargo slots hold equipment (see machine.gd load_onto).
 
+const Settings = preload("res://scripts/core/settings.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 
@@ -126,7 +127,7 @@ func seat_position() -> Vector3:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if driver == null or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	if driver == null or not Settings.mouse_captured():
 		return
 	if event is InputEventMouseMotion and not _chase_on:
 		var motion := event as InputEventMouseMotion

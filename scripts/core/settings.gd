@@ -6,6 +6,18 @@ const PATH := "user://settings.cfg"
 
 static var hazards := true          # mine hazards: lamp batteries, bad air, rotten ground
 static var persist := true
+static var grab_mouse := true       # off for test and screenshot runs, so they never take the mouse
+
+
+## Capture the mouse for looking around (skipped in test runs).
+static func capture_mouse() -> void:
+	if grab_mouse:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## True while the game should treat the mouse as captured. Test runs always count as captured.
+static func mouse_captured() -> bool:
+	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or not grab_mouse
 
 
 static func load_file() -> void:

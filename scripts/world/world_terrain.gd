@@ -59,6 +59,17 @@ func setup(w: WorldGen) -> void:
 	_material.shader = load("res://shaders/terrain.gdshader")
 	_material.set_shader_parameter("noise_large", Tex.noise(0.01, 31, 512))
 	_material.set_shader_parameter("noise_detail", Tex.noise(0.04, 32, 512))
+	var centers := PackedVector2Array()
+	for r in WorldGen.REGIONS:
+		centers.append((r[1] as Vector2) * WorldGen.LAYOUT)
+	_material.set_shader_parameter("region_center", centers)
+	_material.set_shader_parameter("region_k", WorldGen.REGION_BLEND * WorldGen.LAYOUT * 0.35)
+	# Grass, rock and bare ground for each region, in the order of WorldGen.REGIONS.
+	_material.set_shader_parameter("region_grass", PackedVector3Array([Vector3(0.235, 0.285, 0.105), Vector3(0.3, 0.3, 0.16),
+		Vector3(0.4, 0.36, 0.17), Vector3(0.45, 0.4, 0.25), Vector3(0.36, 0.3, 0.16), Vector3(0.16, 0.24, 0.1)]))
+	_material.set_shader_parameter("region_rock", PackedVector3Array([Vector3(0.41, 0.4, 0.38), Vector3(0.45, 0.4, 0.34),
+		Vector3(0.5, 0.45, 0.36), Vector3(0.58, 0.42, 0.3), Vector3(0.6, 0.33, 0.22), Vector3(0.4, 0.4, 0.42)]))
+	_material.set_shader_parameter("region_bare", PackedFloat32Array([0.0, 0.15, 0.1, 0.85, 0.35, 0.0]))
 	_body = StaticBody3D.new()
 	_body.add_to_group("terrain")
 	add_child(_body)

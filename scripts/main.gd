@@ -72,6 +72,7 @@ var _saving := true
 var _failures := 0
 var _loading: CanvasLayer
 var _loading_label: Label
+var _loading_bar: ProgressBar
 var _dark := false
 var _compass_t := 0.0
 
@@ -81,6 +82,7 @@ func _ready() -> void:
 	_opts = _parse_args()
 	_saving = _opts.is_empty()
 	Settings.persist = _opts.is_empty()
+	Settings.grab_mouse = _opts.is_empty() or _opts.has("mouse")
 	Settings.load_file()
 	_setup_input()
 	_show_loading()
@@ -91,9 +93,11 @@ func _ready() -> void:
 	var gen := WorkerThreadPool.add_task(world.generate)
 	while not WorkerThreadPool.is_task_completed(gen):
 		_loading_label.text = "Building the valley...\n%s" % world.progress
+		_loading_bar.value = world.progress_frac * 85.0
 		await get_tree().process_frame
 	WorkerThreadPool.wait_for_task_completion(gen)
 	_loading_label.text = "Planting the forests..."
+	_loading_bar.value = 92.0
 	await get_tree().process_frame
 	await get_tree().process_frame
 	# From here on, everything is set up within one frame, so nothing falls through the
@@ -314,6 +318,22 @@ func _show_loading() -> void:
 	_loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_loading_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_loading.add_child(_loading_label)
+	_loading_bar = ProgressBar.new()
+	_loading_bar.show_percentage = false
+	_loading_bar.anchor_left = 0.3
+	_loading_bar.anchor_right = 0.7
+	_loading_bar.anchor_top = 0.62
+	_loading_bar.anchor_bottom = 0.62
+	_loading_bar.offset_bottom = 14.0
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.2, 0.22, 0.2)
+	bg_style.set_corner_radius_all(4)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.85, 0.68, 0.25)
+	fill.set_corner_radius_all(4)
+	_loading_bar.add_theme_stylebox_override("background", bg_style)
+	_loading_bar.add_theme_stylebox_override("fill", fill)
+	_loading.add_child(_loading_bar)
 
 
 func _start_fresh() -> void:
@@ -705,6 +725,11 @@ func _apply_view() -> void:
 	if _opts.has("cam"):
 		var c := (_opts["cam"] as String).split_floats(",")
 		_place_player(Vector3(c[0], 0.0, c[1]), deg_to_rad(c[2]), deg_to_rad(c[3]))
+	elif _opts.has("region"):
+		var reg: Array = WorldGen.REGIONS[int(_opts["region"])]
+		var rc: Vector2 = (reg[1] as Vector2) * WorldGen.LAYOUT
+		_place_player(Vector3(rc.x, 0.0, rc.y), deg_to_rad(float(_opts.get("yaw", "0"))), deg_to_rad(-4.0))
+		player.global_position.y += 25.0     # a look from above the ground
 	elif _opts.has("view"):
 		var from := Vector3.ZERO
 		var at := Vector3.ZERO
@@ -1001,7 +1026,7 @@ func _selftest() -> void:
 	for md in data.get("machines", []):
 		if md.get("kind", "") == "pump" and int(md.get("vehicle", -1)) >= 0:
 			cargo_saved = true
-	_check("save: version, vehicles, machines, cargo", int(data.get("version", 0)) == 2 and (data.get("vehicles", []) as Array).size() == 2
+	_check("save: version, vehicles, machines, cargo", int(data.get("version", 0)) == SaveGame.VERSION and (data.get("vehicles", []) as Array).size() == 2
 		and (data.get("machines", []) as Array).size() == 3 and cargo_saved)
 	_check("save: digs, waypoints, time", not (data.get("digs", {}).get("h", {}) as Dictionary).is_empty()
 		and (data.get("map", {}).get("waypoints", []) as Array).size() == 1 and data.get("time", {}).get("day", 0) == day_night.day)

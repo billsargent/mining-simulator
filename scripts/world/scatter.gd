@@ -94,7 +94,7 @@ func _tree_ok(x: float, z: float, p: float) -> bool:
 		return false
 	if world.in_pad(x, z, 4.0):
 		return false
-	if p > smoothstep(0.35, 0.7, world.forest(x, z)) * 0.85 + 0.06:
+	if p > smoothstep(0.35, 0.7, world.forest(x, z)) * 0.85 + 0.06 * (1.0 - world.bare(x, z)):
 		return false
 	var h := world.surface(x, z)
 	var n := Vector3(h - world.surface(x + 1.5, z), 1.5, h - world.surface(x, z + 1.5)).normalized()
@@ -342,7 +342,7 @@ func _grass_cell(c: Vector2i) -> PackedFloat32Array:
 			var smp := world.sample(x, z)
 			if smp.y > 0.25 or (smp.z > -1.0e8 and smp.x - smp.z < 0.2):
 				continue
-			if skip > 0.55 + 0.45 * (1.0 - world.forest(x, z)) or world.in_pad(x, z, -4.0):
+			if skip > (0.55 + 0.45 * (1.0 - world.forest(x, z))) * (1.0 - world.bare(x, z)) or world.in_pad(x, z, -4.0):
 				continue
 			var h := terrain.height_undug(x, z)
 			if absf(world.surface(x + 0.7, z) - smp.x) > 0.45 or absf(world.surface(x, z + 0.7) - smp.x) > 0.45:

@@ -10,6 +10,7 @@ extends Node3D
 signal finished(kept: PackedFloat32Array, lost: PackedFloat32Array, black_sand: int)
 signal cancelled
 
+const Settings = preload("res://scripts/core/settings.gd")
 const PanSim = preload("res://scripts/panning/pan_sim.gd")
 
 const VIEW_ANGLE := 48.0      # how far the pan is tipped toward you so you can see in
@@ -66,7 +67,7 @@ func setup(dirt, hud_ref, rng_seed: int = 0) -> void:
 func _input(event: InputEvent) -> void:
 	if scripted:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and Settings.mouse_captured():
 		var motion := event as InputEventMouseMotion
 		if washing:
 			wash_target = clampf(wash_target - motion.relative.y * TILT_SENS, 0.0, PanSim.MAX_TILT)
@@ -81,7 +82,7 @@ func _input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	if not scripted:
-		var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+		var captured := Settings.mouse_captured()
 		shaking = captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 		washing = captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
 	tilt = move_toward(tilt, wash_target if washing else 0.0, 50.0 * delta)
