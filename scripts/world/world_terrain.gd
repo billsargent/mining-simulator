@@ -154,14 +154,68 @@ func dig(p: Vector3, depth: float, radius: float) -> Dictionary:
 			var f := 0.5 + 0.5 * cos(PI * dist / radius)
 			var floor_d := -world.sample(i * CELL, j * CELL).w
 			_set_vertex(i, j, maxf(floor_d, _vertex_delta(i, j) - depth * f), clampf(f * 1.5, 0.0, 1.0))
+	_slump(gi, gj, rc + 5)
 	_mutex.unlock()
 	var bottom := height_at(cx, cz)
-	_after_dig(cx, cz, radius)
+	_after_dig(cx, cz, radius + 2.5)     # the slump reaches a little past the hole
 	dug.emit(Vector3(cx, bottom, cz), radius)
 	return {
 		"x": cx, "z": cz, "top": top, "bottom": bottom, "bedrock": bedrock,
 		"removed": top - bottom, "at_bedrock": bottom <= bedrock + 0.005,
 	}
+
+
+## Loose gravel won't stand steeper than its angle of repose: the walls of a hole cave in a
+## little, which rounds its edges. Only ever lowers ground, never below bedrock.
+const REPOSE_DROP := 0.5 * CELL / 0.5     # height difference allowed between neighbouring cells (45 degrees)
+
+
+func _slump(gi: int, gj: int, reach: int) -> void:
+	var n := reach * 2 + 1
+	var base := PackedFloat32Array()
+	var h := PackedFloat32Array()
+	var floor_d := PackedFloat32Array()
+	base.resize(n * n)
+	h.resize(n * n)
+	floor_d.resize(n * n)
+	var any_dug := false
+	for b in n:
+		for a in n:
+			var i := gi - reach + a
+			var j := gj - reach + b
+			var k := b * n + a
+			base[k] = height_undug(i * CELL, j * CELL)
+			var d := _vertex_delta(i, j)
+			any_dug = any_dug or d < 0.0
+			h[k] = base[k] + d
+			floor_d[k] = -world.sample(i * CELL, j * CELL).w
+	if not any_dug:
+		return
+	var changed := {}
+	for pass_i in 6:
+		var moved := false
+		for b in range(1, n - 1):
+			for a in range(1, n - 1):
+				var k := b * n + a
+				# The highest this cell may stand: within the repose drop of each neighbour, or as
+				# steep as the land was before digging, whichever allows more.
+				var cap := INF
+				for nb: int in [k - 1, k + 1, k - n, k + n]:
+					cap = minf(cap, h[nb] + maxf(REPOSE_DROP, base[k] - base[nb]))
+				if h[k] > cap + 0.002:
+					var want := maxf(cap, base[k] + floor_d[k])
+					if want < h[k] - 0.002:
+						h[k] = want
+						changed[k] = true
+						moved = true
+		if not moved:
+			break
+	for k: int in changed:
+		var i := gi - reach + k % n
+		var j := gj - reach + k / n
+		if i < 1 or j < 1 or i >= TILES * TN or j >= TILES * TN:
+			continue
+		_set_vertex(i, j, h[k] - base[k], 0.6)
 
 
 func _vertex_delta(i: int, j: int) -> float:
