@@ -35,6 +35,7 @@ const HomeBase = preload("res://scripts/base/home_base.gd")
 const Sluice = preload("res://scripts/machines/sluice.gd")
 const HighBanker = preload("res://scripts/machines/high_banker.gd")
 const Pump = preload("res://scripts/machines/pump.gd")
+const Dredge = preload("res://scripts/machines/dredge.gd")
 const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
@@ -357,6 +358,8 @@ func spawn_machine(kind: String):
 			m = HighBanker.new()
 		"pump":
 			m = Pump.new()
+		"dredge":
+			m = Dredge.new()
 		_:
 			return null
 	add_child(m)
@@ -398,6 +401,8 @@ func deliver(item: String) -> void:
 	if item == "high_banker":
 		spawn_machine("high_banker").place_at(base.slot_position(1), base.slot_yaw())
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
+	elif item == "dredge":
+		spawn_machine("dredge").place_at(base.to_global(Vector3(-8.0, 0.0, 2.2)), base.slot_yaw())
 	elif item == "crusher":
 		base.crusher.set_powered(true)
 	_apply_gear()
@@ -732,6 +737,15 @@ func _apply_view() -> void:
 			"assay":
 				from = town.to_global(Vector3(1.0, 0.0, 0.6))
 				at = town.to_global(Vector3(1.4, 1.1, -2.4))
+			"dredge":
+				var d = machine_of("dredge")
+				if d == null:
+					d = spawn_machine("dredge")
+				var dp := world.river_point("Big Sable River", 0.5, 0.3)
+				d.place_at(Vector3(dp.x, 0.0, dp.y), 0.4)
+				var p := world.river_point("Big Sable River", 0.503, 1.15)
+				from = Vector3(p.x, 0.0, p.y)
+				at = d.global_position
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -1181,6 +1195,30 @@ func _selftest() -> void:
 	_check("and gives them back", inv.bars.size() == 1 and inv.nuggets.size() == 1 and inv.ore.size() == 1 and inv.cons.size() == jars_before
 		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001)
 	_check("the bunk is inside", base.to_local(base.bed.global_position).z < HomeBase.CABIN_Z)
+
+	# The suction dredge: bought with its permit, floated on your claim, it feeds itself.
+	inv.money += 3700
+	town.store.select("dredge")
+	town.store.interact(player)
+	var dredge = machine_of("dredge")
+	_check("the dredge is delivered", dredge != null and inv.gear.has("dredge"))
+	var shallow := _v3(world.river_point("Big Sable River", 0.3, 1.2))
+	dredge.place_at(shallow, 0.0)
+	_check("the dredge needs deeper water", dredge.water_problem() != "")
+	var deep := _v3(world.river_point("Big Sable River", 0.3, 0.3))
+	dredge.place_at(deep, 0.0)
+	_check("off your claim it won't run", dredge.water_problem() == "" and not dredge.is_running())
+	town.claims_office.select("sable")
+	town.claims_office.interact(player)
+	var bed_before: float = terrain.height_at(deep.x, deep.z)
+	for i in 330:
+		await get_tree().physics_frame
+	print("  dredge: depth %.2f m, %d shovelfuls through, %d pieces caught, bed down %.2f m" % [terrain.water_depth(deep.x, deep.z),
+		dredge.processed_total, dredge.caught.size(), bed_before - terrain.height_at(deep.x, deep.z)])
+	_check("on your claim it sucks up the bottom by itself", dredge.is_running() and dredge.processed_total >= 1
+		and terrain.height_at(deep.x, deep.z) < bed_before - 0.05)
+	dredge.interact(player)
+	_check("its riffles clean out into a jar", not dredge.has_concentrate())
 
 	# Walk.
 	player.global_position = base.spawn_point
