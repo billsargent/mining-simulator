@@ -16,7 +16,8 @@ You inherit your grandfather's run-down cabin and one small claim in a huge moun
 ## Simplicity rules (hard constraints)
 These exist because other mining sims got buried in repetitive setup work (hand-connecting hoses, plumbing pumps).
 - **Setup is one action.** Place the high banker, place the pump in the water: the hose connects itself. Pack up is one action. A kit loads onto a vehicle as one item.
-- **No plumbing, priming, wiring, or fittings.** Fuel is one tank per machine, topped up with one interaction.
+- **No plumbing, priming, wiring, or fittings.**
+- **No fuel.** Decided in M5 (#28): a tank to top up adds a chore but no decision, since fuel would always be cheap and close at hand. Machines and vehicles just run. Distance already costs time, and that is enough.
 - **One knob per machine at most** (e.g., sluice angle) with a clear green/yellow/red indicator.
 - **Short tasks.** A pan takes ~15 s. Once you've mastered a task, later gear can automate it.
 - **If a step isn't fun or a decision, cut it.**
@@ -35,9 +36,9 @@ Scout → test-pan → set up gear → dig and process → haul concentrates hom
 
 **World.** A 2×2 km slice → 8×8 km first release, built to grow. Regions: Home Valley, Foothill Benches, Canyon Country, Alpine Creeks, Desert Washes, Old Mining District. Town: store, assay/buyer, claims office, fuel, mechanic. Day/night, weather that changes river levels, seasons.
 
-**Vehicles.** On foot → dirt bike → ATV + trailer → pickup + trailer → UTV → raft/jon boat → mini-excavator (→ helicopter, stretch goal). Fuel, load weight affects handling, winch, fording. Gear snaps onto beds and trailers.
+**Vehicles.** On foot → dirt bike → ATV + trailer → pickup + trailer → UTV → raft/jon boat → mini-excavator (→ helicopter, stretch goal). Load weight affects handling, winch, fording. Gear snaps onto beds and trailers.
 
-**Navigation.** Paper map that fills in as you explore, compass, handheld GPS. Waypoint pins with icons. A sample log puts every test pan on the map as a heat dot. Flagging tape, a vehicle locator. Fast travel only between owned camps (time skip + fuel).
+**Navigation.** Paper map that fills in as you explore, compass, handheld GPS. Waypoint pins with icons. A sample log puts every test pan on the map as a heat dot. Flagging tape, a vehicle locator. Fast travel only between owned camps (time skip).
 
 **Economy.** Bars (price × weight × purity), nuggets, specimens, artifacts. Claims: public land is pan/snipe only; a claim unlocks digging and motorized gear. Progression axes: Gear, Access, Knowledge. No RPG stats.
 

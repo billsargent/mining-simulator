@@ -9,6 +9,7 @@ const DepositField = preload("res://scripts/gold/deposit_field.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const Inventory = preload("res://scripts/player/inventory.gd")
 const Settings = preload("res://scripts/core/settings.gd")
+const Claims = preload("res://scripts/core/claims.gd")
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.8
@@ -19,7 +20,7 @@ const JUMP_VELOCITY := 4.4
 const MOUSE_SENS := 0.0022
 const EYE_HEIGHT := 1.65
 const REACH := 3.2
-const BUCKET_CAPACITY := 6
+const BUCKET_CAPACITY := 6            # 10 with the big bucket
 const DIG_COOLDOWN := 0.55
 const DIG_DEPTH := 0.15
 const DIG_RADIUS := 0.85
@@ -267,7 +268,7 @@ func _try_dig() -> void:
 		return
 	_dig_cd = DIG_COOLDOWN
 	var machine = _feedable_machine()
-	if machine == null and inv.bucket.size() >= BUCKET_CAPACITY:
+	if machine == null and inv.bucket.size() >= inv.bucket_capacity():
 		hud.toast("Bucket's full. Pan it at the water [E], dump it [R], or dump it into a machine.")
 		return
 	var p: Vector3 = _aim["position"]
@@ -302,7 +303,7 @@ func _try_chip() -> void:
 	# Hammer and chisel, miner's pick, rotary hammer: each is quicker and bites deeper.
 	var tier: int = clampi(inv.tool_tier, 0, 2)
 	_dig_cd = [0.95, 0.6, 0.28][tier]
-	if inv.ore.size() >= Inventory.ORE_CAPACITY:
+	if inv.ore.size() >= inv.ore_capacity():
 		hud.toast("Your ore sack is full. Take it home to the ore crusher.")
 		return
 	var res: Dictionary = mine.chip(_aim["position"], _aim["normal"], [1.0, 1.45, 1.8][tier])
@@ -317,7 +318,7 @@ func _try_chip() -> void:
 			chunk.add_gold(deposits.piece(true))
 		inv.ore.append(chunk)
 		inv.complete_goal("ore")
-		hud.toast("Quartz ore into the sack  (%d/%d)" % [inv.ore.size(), Inventory.ORE_CAPACITY], Color(1.0, 0.95, 0.8), 1.5)
+		hud.toast("Quartz ore into the sack  (%d/%d)" % [inv.ore.size(), inv.ore_capacity()], Color(1.0, 0.95, 0.8), 1.5)
 		# Now and then a piece comes away with gold showing in the quartz: a specimen.
 		var rich: bool = int(res["vein_b"]) > 0
 		if randf() < (0.12 if rich else 0.06):
@@ -405,7 +406,7 @@ func _update_carry() -> void:
 		off = Vector2(flat.x, flat.z) * 1.8
 		p = Vector3(global_position.x + off.x, p.y, global_position.z + off.y)
 	carrying.place_at(p, rotation.y)
-	var problem: String = carrying.water_problem()
+	var problem: String = carrying.problem()
 	var t := "[b]Carrying: %s[/b]\n" % carrying.display_name
 	if problem == "":
 		t += "[color=#80dd80]It will run here.[/color]"
@@ -424,7 +425,7 @@ func _set_down() -> void:
 	_shovel.visible = true
 	_dig_cd = 0.4
 	_interact_block = 0.2
-	var problem: String = m.water_problem()
+	var problem: String = m.problem()
 	if problem == "":
 		hud.toast("%s set up and ready." % m.display_name, Color(0.6, 1.0, 0.6))
 		if m.kind == "sluice":
@@ -457,7 +458,10 @@ func _try_pan() -> void:
 		hud.toast("You need water to pan. Get to the edge of a creek, or use the wash tub at the cabin.")
 		return
 	if not inv.bucket.is_empty():
-		start_panning(inv.bucket.pop_front(), "bucket")
+		var dirt = inv.bucket.pop_front()
+		if inv.gear.has("classifier") and dirt.gravel > 0.45:
+			dirt.gravel = 0.45        # the screen keeps the big gravel out of the pan
+		start_panning(dirt, "bucket")
 	else:
 		start_panning(inv.cons.pop_front(), "cons")
 
@@ -571,7 +575,7 @@ func _update_prompt() -> void:
 		var machine = _feedable_machine()
 		if machine != null:
 			parts.append(Hud.key("Left mouse") + " Dig into the %s" % machine.display_name.to_lower())
-		elif inv.bucket.size() < BUCKET_CAPACITY:
+		elif inv.bucket.size() < inv.bucket_capacity():
 			parts.append(Hud.key("Left mouse") + " Dig")
 		else:
 			parts.append("Bucket full: " + Hud.key("R") + " dump it")
@@ -580,11 +584,25 @@ func _update_prompt() -> void:
 
 func refresh_hud() -> void:
 	var extra := PackedStringArray()
+	if mine == null and not Claims.list.is_empty():
+		var p := global_position if driving == null else (driving.global_position as Vector3)
+		var c := Claims.at(p.x, p.z)
+		if c.is_empty():
+			extra.append("Public land: pan and shovel only")
+		elif Claims.is_owned(c["id"]):
+			extra.append("%s: yours" % c["name"])
+		else:
+			extra.append("%s: for sale, $%d" % [c["name"], c["price"]])
+		if inv.gear.has("detector") and driving == null:
+			var r: float = deposits.richness(p.x, p.z)
+			var bars := clampi(ceili(r / 0.3), 0, 6)
+			extra.append("Detector   %s%s   %s" % ["|".repeat(bars), ".".repeat(6 - bars),
+				["nothing", "a trace", "some color", "fair ground", "good ground", "rich ground", "very rich ground"][bars]])
 	if mine != null and Settings.hazards:
 		extra.append("Headlamp battery   %d%%" % roundi(lamp_charge * 100.0))
 		if air < 0.995:
 			extra.append("Air   %d%%   get back to good air!" % roundi(air * 100.0))
-	hud.set_status(inv, BUCKET_CAPACITY, clock, extra)
+	hud.set_status(inv, inv.bucket_capacity(), clock, extra)
 	hud.set_goal(inv.next_goal())
 
 

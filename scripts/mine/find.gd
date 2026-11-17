@@ -5,8 +5,14 @@ extends StaticBody3D
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 
-## kind -> [name, title on the page, text, river the place is on ("" = none), label on the map]
+## kind -> [name, title on the page, text, where the place is ("" = none), label on the map]
+## The place is a creek name (its richest ground gets marked) or "site:<name>".
 const FINDS = {
+	"grandpa": ["Grandpa's journal", "Grandpa's journal",
+		"If you are reading this, the claim is yours now. The creek still pays if you dig down to bedrock, and the old bench above it pays better.\n\n"
+		+ "Sell in town: Sable Crossing, down the creek road and east along the river. The assay man is honest. The store has anything you can afford, and the claims office will sell you more ground when you outgrow mine.\n\n"
+		+ "One more thing. West of here, above Rattlesnake Gulch, there is an old mine, boarded up since 1890. I have drawn it on your map. The men who dug it knew about a ledge up north richer than anything in this valley. I looked for it for thirty years. I never found it, but I never got into the lower level of that mine either.",
+		"site:mine", "Grandpa's sketch: the old mine"],
 	"journal": ["Miner's journal", "Journal of E. Hendricks, 1889",
 		"Sept 3.  The vein pinches and swells but she holds her values. Foreman says the lower level runs richer and I believe him, bad air or no.\n\n"
 		+ "Sept 19.  Sundays I take the pan down the gulch. There is a bar below the second bend where the creek drops its load. Took near half an ounce off it in a morning and told no one.\n\n"
@@ -35,7 +41,7 @@ func build(k: String) -> void:
 	var paper := Parts.mat("paper", Color(0.92, 0.9, 0.84), 0.9)
 	Parts.box(self, Vector3(0.6, 0.45, 0.45), Vector3(0, 0.225, 0), crate)
 	match kind:
-		"journal":
+		"journal", "grandpa":
 			Parts.box(self, Vector3(0.24, 0.05, 0.32), Vector3(0.05, 0.475, 0), Parts.mat("leather", Color(0.3, 0.16, 0.1), 0.7), Vector3(0, 0.3, 0))
 			Parts.box(self, Vector3(0.22, 0.03, 0.3), Vector3(0.05, 0.48, 0), paper, Vector3(0, 0.3, 0))
 		"map":
@@ -62,7 +68,7 @@ func interact(player) -> void:
 	if player.inv.finds.has(kind):
 		return
 	player.inv.finds[kind] = true
-	player.inv.complete_goal("find")
+	player.inv.complete_goal("journal" if kind == "grandpa" else "find")
 	if f[3] != "":
 		get_tree().call_group("game", "mark_place", f[3], f[4])
-		player.hud.toast("Marked on your map: %s, on %s." % [f[4], f[3]], Color(0.6, 1.0, 0.6), 6.0)
+		player.hud.toast("Marked on your map: %s." % f[4], Color(0.6, 1.0, 0.6), 6.0)

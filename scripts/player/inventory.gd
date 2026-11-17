@@ -5,14 +5,15 @@ const Paydirt = preload("res://scripts/gold/paydirt.gd")
 
 const NUGGET_MASS := 0.3
 const GOALS = [
+	["journal", "Read Grandpa's journal: it's on the crate in front of the porch (E)."],
 	["pan", "Dig some gravel (left mouse), then pan it at the creek's edge (E)."],
 	["sluice_placed", "Carry the sluice from the shed (F) and set it in the creek (left mouse)."],
 	["sluice_fed", "Dig right next to the sluice: each shovelful goes straight in."],
 	["cleaned", "Clean out the sluice's riffles (E on the sluice)."],
 	["cons_panned", "Pan your jar of concentrate at the wash tub by the cabin (E)."],
 	["smelted", "Melt your gold into a bar at the furnace (E)."],
-	["sold", "Ship the bar in the gold buyer's box in front of the porch (E)."],
-	["high_banker", "Save up $350 and order a high banker at the order board on the cabin."],
+	["sold", "Sell the bar at the assay office in town: take the road down Cabin Creek, then east along the river. M opens the map."],
+	["high_banker", "Save up $900 and buy a high banker at the general store in town."],
 	["hb_running", "Set the pump at the creek's edge and the high banker on the bank, then feed it."],
 	["drive", "Hop on the ATV or the pickup parked by the cabin (E) and take it for a spin."],
 	["haul", "Carry a machine to a vehicle and set it on the rack or in the bed (left mouse)."],
@@ -21,6 +22,7 @@ const GOALS = [
 	["mine_enter", "Find the old mine above Rattlesnake Gulch (west on the map) and go in. Bring your headlamp (L)."],
 	["ore", "Chip a white quartz vein in the mine wall (left mouse) to fill your ore sack."],
 	["crushed", "Take the ore home and pound it in the ore crusher by the wash tub, then pan the jar."],
+	["claim", "Buy a claim at the claims office in town. Test-pan it first: machines only run on ground you own."],
 	["find", "The old crew left things behind in the mine. Look in the far corners and read what you find."],
 ]
 
@@ -39,6 +41,8 @@ var tool_tier := 0                      # 0 hammer and chisel, 1 miner's pick, 2
 var crusher_powered := false
 var specimens := PackedFloat32Array()   # gold in quartz, kept whole: grams of gold in each
 var finds := {}                         # journals and maps already read
+var gear := {}                          # small things from the store: classifier, bucket, sack, moss, detector
+var claims := {}                        # ids of the claims you have bought
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
 
@@ -53,6 +57,14 @@ func add_gold(pieces: PackedFloat32Array) -> void:
 			nuggets.append(m)
 		else:
 			vial.append(m)
+
+
+func bucket_capacity() -> int:
+	return 10 if gear.has("bucket") else 6
+
+
+func ore_capacity() -> int:
+	return 20 if gear.has("sack") else ORE_CAPACITY
 
 
 func add_specimen(grams: float) -> void:
@@ -100,7 +112,7 @@ func to_dict() -> Dictionary:
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
-		"crusher_powered": crusher_powered, "specimens": specimens, "finds": finds,
+		"crusher_powered": crusher_powered, "specimens": specimens, "finds": finds, "gear": gear, "claims": claims,
 	}
 
 
@@ -120,6 +132,8 @@ func from_dict(d: Dictionary) -> void:
 	crusher_powered = d.get("crusher_powered", false)
 	specimens = d.get("specimens", PackedFloat32Array())
 	finds = d.get("finds", {})
+	gear = d.get("gear", {})
+	claims = d.get("claims", {})
 
 
 static func _sum(a: PackedFloat32Array) -> float:

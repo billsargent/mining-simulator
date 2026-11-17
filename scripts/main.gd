@@ -40,8 +40,11 @@ const Truck = preload("res://scripts/vehicles/truck.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
-const ShipBox = preload("res://scripts/base/ship_box.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
+const Town = preload("res://scripts/world/town.gd")
+const Claims = preload("res://scripts/core/claims.gd")
+const Market = preload("res://scripts/core/market.gd")
+const Recovery = preload("res://scripts/machines/recovery.gd")
 
 const MINE_DEPTH := -300.0     # the mine interior sits this far below sea level, out of sight
 
@@ -54,6 +57,7 @@ var deposits: DepositField
 var terrain: WorldTerrain
 var scatter: Scatter
 var base: HomeBase
+var town: Town
 var player: Player
 var hud: Hud
 var menu: PauseMenu
@@ -118,6 +122,10 @@ func _ready() -> void:
 	var landmarks := Landmarks.new()
 	add_child(landmarks)
 	landmarks.build(terrain, world.sites)
+	town = Town.new()
+	add_child(town)
+	town.build(terrain, world.sites["town"])
+	Claims.setup(world, deposits)
 	_build_bounds()
 	hud = Hud.new()
 	add_child(hud)
@@ -138,6 +146,8 @@ func _ready() -> void:
 		SaveGame.path = "user://loadtest.dat"
 	if not ((_saving or load_test) and _load_game()):
 		_start_fresh()
+	Claims.owned = player.inv.claims
+	_apply_gear()
 	_build_near_player()
 	_loading.queue_free()
 	ready_to_play = true
@@ -163,6 +173,7 @@ func _process(delta: float) -> void:
 	terrain.focus = f
 	scatter.focus = f
 	player.clock = day_night.clock_text()
+	Market.day = day_night.day
 	var dark := day_night.is_dark()
 	if dark != _dark:
 		_dark = dark
@@ -202,6 +213,7 @@ func _update_compass() -> void:
 	for i in map_view.waypoints.size():
 		markers.append([map_view.waypoints[i], Color(1.0, 0.85, 0.2), str(i + 1)])
 	markers.append([world.sites["base"]["pos"], Color(1.0, 0.55, 0.25), "Home"])
+	markers.append([world.sites["town"]["pos"], Color(0.75, 0.7, 1.0), "Town"])
 	for m in map_view.marks:
 		markers.append([m[0], Color(1.0, 0.45, 0.35), m[1]])
 	for v in get_tree().get_nodes_in_group("vehicles"):
@@ -266,23 +278,16 @@ func rescue_from_mine(message: String) -> void:
 	hud.toast(message, Color(1.0, 0.6, 0.35), 8.0)
 
 
-## A journal or an old map points at the richest ground on a creek; put it on the map.
-func mark_place(river_name: String, label: String) -> void:
-	map_view.add_mark(rich_spot(river_name), label)
+## A journal or an old map points at a place: "site:<name>", or the richest ground on a creek.
+func mark_place(where: String, label: String) -> void:
+	if where.begins_with("site:"):
+		map_view.add_mark(world.sites[where.substr(5)]["pos"], label)
+	else:
+		map_view.add_mark(rich_spot(where), label)
 
 
-## The best gravel along a creek, between 15% and 85% of its length.
 func rich_spot(river_name: String) -> Vector2:
-	var best := Vector2.ZERO
-	var best_r := -1.0
-	for i in 71:
-		for frac: float in [-1.6, -1.2, -0.6, 0.0, 0.6, 1.2, 1.6]:
-			var p := world.river_point(river_name, 0.15 + i * 0.01, frac)
-			var r := deposits.richness(p.x, p.y)
-			if r > best_r:
-				best_r = r
-				best = p
-	return best
+	return deposits.rich_spot(river_name)
 
 
 func sleep() -> void:
@@ -321,6 +326,11 @@ func _start_fresh() -> void:
 	var home: Vector2 = world.sites["base"]["pos"]
 	for off in [Vector2.ZERO, Vector2(0, -250), Vector2(0, -450), Vector2(-200, -350), Vector2(200, -350)]:
 		map_view.reveal_around(Vector3(home.x + off.x, 0.0, home.y + off.y))
+	# ... and the road to town.
+	var town_pos: Vector2 = world.sites["town"]["pos"]
+	for k in 7:
+		var q := home.lerp(town_pos, k / 6.0)
+		map_view.reveal_around(Vector3(q.x, 0.0, q.y))
 	hud.toast("Grandpa's claim on Cabin Creek. Your next step is always in the top-left corner.", Color(1.0, 0.9, 0.6), 8.0)
 
 
@@ -390,6 +400,12 @@ func deliver(item: String) -> void:
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
 	elif item == "crusher":
 		base.crusher.set_powered(true)
+	_apply_gear()
+
+
+## Things the player owns that change how the machines work.
+func _apply_gear() -> void:
+	Recovery.carpet_bonus = 0.12 if player.inv.gear.has("moss") else 0.0
 
 
 func _setup_input() -> void:
@@ -704,6 +720,21 @@ func _apply_view() -> void:
 				var q := world.river_point("Big Sable River", 0.44, 0.0)
 				from = Vector3(p.x, 0.0, p.y)
 				at = Vector3(q.x, terrain.height_at(q.x, q.y) - 15.0, q.y)
+			"town":
+				from = town.to_global(Vector3(6.0, 0.0, 17.0))
+				at = town.to_global(Vector3(-2.0, 2.0, -3.0))
+			"store":
+				from = town.to_global(Vector3(-7.4, 0.0, 0.2))
+				at = town.to_global(Vector3(-7.9, 1.5, -3.0))
+			"claims":
+				from = town.to_global(Vector3(10.2, 0.0, 0.2))
+				at = town.to_global(Vector3(10.6, 1.5, -3.0))
+			"assay":
+				from = town.to_global(Vector3(1.0, 0.0, 0.6))
+				at = town.to_global(Vector3(1.4, 1.1, -2.4))
+			"journal":
+				from = base.to_global(Vector3(-1.5, 0.0, 5.6))
+				at = base.to_global(Vector3(-1.9, 0.5, 3.3))
 			"camp", "mine":
 				var site: Dictionary = world.sites[_opts["view"]]
 				var pos: Vector2 = site["pos"]
@@ -805,8 +836,37 @@ func _selftest() -> void:
 			break
 	_check("smelting makes a bar", inv.bars.size() == 1)
 	var money_before: int = inv.money
-	base.ship_box.interact(player)
-	_check("shipping pays", inv.money > money_before)
+	town.assay.interact(player)
+	_check("the assay office pays for the bar", inv.money > money_before)
+	_check("the town stands on level ground by the road", absf(town.street.y - terrain.height_at(town.street.x, town.street.z)) < 0.4
+		and world.road_weight(town.to_global(Vector3(0, 0, 28)).x, town.to_global(Vector3(0, 0, 28)).z) > 0.5)
+	var p1 := Market.price(1)
+	var lo := p1
+	var hi := p1
+	for d in range(1, 40):
+		lo = minf(lo, Market.price(d))
+		hi = maxf(hi, Market.price(d))
+	_check("the gold price drifts, but not wildly", hi - lo > 8.0 and lo > Market.BASE_PRICE * 0.8 and hi < Market.BASE_PRICE * 1.2)
+	print("  gold price over 40 days: $%.2f to $%.2f a gram" % [lo, hi])
+	base.journal.interact(player)
+	_check("Grandpa's journal marks the old mine", map_view.marks.size() == 1
+		and (map_view.marks[0][0] as Vector2).distance_to(world.sites["mine"]["pos"]) < 1.0)
+	hud.hide_note()
+
+	# Claims: machines only run on ground you own.
+	var willow := _v3(world.river_point("Willow Creek", 0.5, 0.5))
+	sluice.place_at(willow, 0.0)
+	_check("a sluice has water on Willow Creek but won't run: not your claim", sluice.water_problem() == "" and sluice.problem() != "" and not sluice.is_running())
+	var open_ground := _v3(world.river_point("Willow Creek", 0.15, 0.5))
+	sluice.place_at(open_ground, 0.0)
+	_check("nor on public land", sluice.water_problem() == "" and not sluice.is_running())
+	sluice.place_at(willow, 0.0)
+	inv.money += 1500
+	town.claims_office.select("willow")
+	town.claims_office.interact(player)
+	_check("buying the claim lets it run", inv.claims.has("willow") and sluice.is_running())
+	_check("Grandpa's claim covers the cabin and the creek", Claims.is_owned_at(base.center.x, base.center.z)
+		and Claims.is_owned_at(cabin_creek.x, cabin_creek.y))
 
 	# Every river and creek works for the sluice, the pump and panning.
 	var all_rivers := true
@@ -826,8 +886,9 @@ func _selftest() -> void:
 	player.global_position = base.spawn_point
 
 	# High banker and pump.
-	inv.money += 400
-	base.order_board.interact(player)
+	inv.money += 900
+	town.store.select("high_banker")
+	town.store.interact(player)
 	var hb = machine_of("high_banker")
 	var pump = machine_of("pump")
 	_check("high banker and pump delivered", hb != null and pump != null)
@@ -936,12 +997,12 @@ func _selftest() -> void:
 	var small: Dictionary = mine.chip(mine.to_global(Vector3(10.0, 9.0, 31.2)), Vector3(0, 0, -1), 1.0)
 	var big: Dictionary = mine.chip(mine.to_global(Vector3(15.0, 9.0, 31.2)), Vector3(0, 0, -1), 1.8)
 	_check("better tools bite deeper", int(big["rock"]) > int(small["rock"]) and int(small["rock"]) > 0)
-	inv.money += 800
-	base.order_board.scroll(player, -1)
-	base.order_board.interact(player)
-	base.order_board.scroll(player, -1)
-	base.order_board.interact(player)
-	_check("the order board sells the pick, then the rotary hammer", inv.tool_tier == 2)
+	inv.money += 1900
+	town.store.select("pick")
+	town.store.interact(player)
+	town.store.select("rotary")
+	town.store.interact(player)
+	_check("the store sells the pick, then the rotary hammer", inv.tool_tier == 2)
 	var lower: Dictionary = mine.chip(mine.to_global(Vector3(50.0, 2.5, 13.1)), Vector3(0, 0, 1))
 	_check("the lower vein is there", int(lower["vein_b"]) > 0)
 	player.global_position = mine.to_global(Vector3(56.0, 5.2, 30.0))
@@ -960,9 +1021,9 @@ func _selftest() -> void:
 	SaveGame.delete()
 
 	# Powered crusher and specimens.
-	inv.money += 400
-	base.order_board.scroll(player, -1)
-	base.order_board.interact(player)
+	inv.money += 1200
+	town.store.select("crusher")
+	town.store.interact(player)
 	_check("the powered crusher is delivered", inv.crusher_powered and base.crusher.powered)
 	var ore_piece := Paydirt.new()
 	for i in 40:
@@ -980,9 +1041,28 @@ func _selftest() -> void:
 	inv.nuggets = PackedFloat32Array()
 	inv.add_specimen(0.4)
 	money_before = inv.money
-	base.ship_box.interact(player)
-	_check("specimens sell at a premium", inv.specimens.is_empty() and inv.money - money_before == ShipBox.specimen_value(0.4)
-		and ShipBox.specimen_value(0.4) > roundi(0.4 * ShipBox.PRICE_PER_GRAM * 2.0))
+	town.assay.interact(player)
+	_check("specimens sell at a premium", inv.specimens.is_empty() and inv.money - money_before == Market.specimen_value(0.4)
+		and Market.specimen_value(0.4) > roundi(0.4 * Market.price() * 2.0))
+
+	# The rest of the catalog: each thing changes something.
+	inv.money += 1430
+	for id in ["classifier", "bucket", "sack", "moss", "detector"]:
+		town.store.select(id)
+		town.store.interact(player)
+	_check("the catalog sells the small gear", inv.gear.size() == 5 and inv.money == money_before + Market.specimen_value(0.4))
+	_check("big bucket and big ore sack", inv.bucket_capacity() == 10 and inv.ore_capacity() == 20)
+	_check("miner's moss holds more fine gold", Recovery.carpet_bonus > 0.0
+		and Recovery.catch_chance(0.002, 6.0) > 0.8 and Recovery.catch_chance(0.2, 6.0) <= 0.995)
+	player.global_position = _v3(world.river_point("Cabin Creek", 0.6, 1.2))
+	player.global_position.y = terrain.height_at(player.global_position.x, player.global_position.z) + 0.1
+	var shovel := Paydirt.new()
+	inv.bucket.append(shovel)
+	player._try_pan()
+	_check("the classifier takes gravel out of the pan", player.pan_view != null and shovel.gravel < 0.5)
+	player.pan_view.cancelled.emit()
+	player.refresh_hud()
+	_check("the detector reads the ground", "Detector" in hud._status.text and "yours" in hud._status.text)
 
 	# Journals and old maps.
 	enter_mine()
@@ -992,13 +1072,13 @@ func _selftest() -> void:
 			journal = ch
 	journal.interact(player)
 	var spot := rich_spot("Rattlesnake Gulch")
-	_check("reading the journal marks a place on the map", hud.note_open() and map_view.marks.size() == 1
-		and (map_view.marks[0][0] as Vector2).distance_to(spot) < 1.0)
+	_check("reading the journal marks a place on the map", hud.note_open() and map_view.marks.size() == 2
+		and (map_view.marks[1][0] as Vector2).distance_to(spot) < 1.0)
 	_check("the marked place really is rich", deposits.richness(spot.x, spot.y) > 0.8)
 	print("  Hendricks' bar: richness %.2f at (%d, %d)" % [deposits.richness(spot.x, spot.y), spot.x, spot.y])
 	journal.interact(player)
 	journal.interact(player)
-	_check("reading it again adds nothing", map_view.marks.size() == 1)
+	_check("reading it again adds nothing", map_view.marks.size() == 2)
 	hud.hide_note()
 
 	# Hazards: lamp battery, bad air, rotten ground; then all of it switched off.

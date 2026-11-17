@@ -54,6 +54,20 @@ func richness(x: float, z: float) -> float:
 	return clampf(r * patch, 0.0, 2.4)
 
 
+## The best gravel along a creek, between 15% and 85% of its length.
+func rich_spot(river_name: String) -> Vector2:
+	var best := Vector2.ZERO
+	var best_r := -1.0
+	for i in 71:
+		for frac: float in [-1.6, -1.2, -0.6, 0.0, 0.6, 1.2, 1.6]:
+			var p := world.river_point(river_name, 0.15 + i * 0.01, frac)
+			var r := richness(p.x, p.y)
+			if r > best_r:
+				best_r = r
+				best = p
+	return best
+
+
 ## Gold drops out in the slack water just downstream of a creek boulder.
 func _boulder_bonus(x: float, z: float) -> float:
 	var best := 0.0

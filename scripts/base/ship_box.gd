@@ -1,44 +1,35 @@
 extends StaticBody3D
-## The gold buyer's pickup box. Bars sell by their pure gold content; nuggets and specimens
-## (gold in quartz, left whole) sell to collectors at a premium.
+## The gold buyer's counter at the assay office in town. Bars sell by their pure gold content
+## at the day's price; nuggets and specimens (gold in quartz, left whole) sell to collectors
+## at a premium.
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
-
-const PRICE_PER_GRAM := 95.0
-
-
-static func bar_value(bar: Dictionary) -> int:
-	return roundi(float(bar["grams"]) * float(bar["purity"]) * PRICE_PER_GRAM)
-
-
-static func nugget_value(m: float) -> int:
-	return roundi(m * PRICE_PER_GRAM * (1.5 + minf(m, 2.0) * 0.25))
-
-
-static func specimen_value(grams: float) -> int:
-	return roundi(grams * PRICE_PER_GRAM * 2.5)
+const Market = preload("res://scripts/core/market.gd")
 
 
 func build() -> void:
-	var wood := Parts.wood("crate", Color(0.5, 0.38, 0.25))
-	Parts.box(self, Vector3(0.75, 0.5, 0.5), Vector3(0, 0.25, 0), wood)
-	Parts.box(self, Vector3(0.8, 0.05, 0.55), Vector3(0, 0.525, 0), Parts.wood("dark_wood", Color(0.3, 0.22, 0.15)))
-	Parts.box(self, Vector3(0.06, 1.3, 0.06), Vector3(0.45, 0.65, -0.2), wood)
-	Parts.box(self, Vector3(0.7, 0.3, 0.03), Vector3(0.45, 1.3, -0.2), Parts.wood("sign", Color(0.62, 0.52, 0.38)))
-	Parts.label(self, "GOLD BUYER\nPICKUP", Vector3(0.45, 1.3, -0.18), 26)
-	Parts.collider(self, Vector3(0.8, 0.55, 0.55), Vector3(0, 0.275, 0))
-	Parts.collider(self, Vector3(0.7, 0.4, 0.1), Vector3(0.45, 1.3, -0.2))
+	var wood := Parts.wood("counter", Color(0.45, 0.33, 0.22))
+	var brass := Parts.mat("brass", Color(0.78, 0.6, 0.25), 0.35, 0.9)
+	Parts.box(self, Vector3(1.6, 0.95, 0.55), Vector3(0, 0.475, 0), wood)
+	Parts.box(self, Vector3(1.7, 0.05, 0.65), Vector3(0, 0.975, 0), Parts.wood("dark_wood", Color(0.3, 0.22, 0.15)))
+	# A balance scale on the counter.
+	Parts.cyl(self, 0.02, 0.4, Vector3(0.35, 1.2, 0), brass, Vector3.ZERO, -1.0, 8)
+	Parts.box(self, Vector3(0.5, 0.02, 0.02), Vector3(0.35, 1.38, 0), brass)
+	for s: float in [-1.0, 1.0]:
+		Parts.cyl(self, 0.09, 0.015, Vector3(0.35 + s * 0.23, 1.24, 0), brass, Vector3.ZERO, -1.0, 12)
+	Parts.label(self, "GOLD BUYER", Vector3(-0.3, 1.25, 0.05), 24)
+	Parts.collider(self, Vector3(1.7, 1.0, 0.65), Vector3(0, 0.5, 0))
 
 
 func _total(inv) -> int:
 	var total := 0
 	for b in inv.bars:
-		total += bar_value(b)
+		total += Market.bar_value(b)
 	for m in inv.nuggets:
-		total += nugget_value(m)
+		total += Market.nugget_value(m)
 	for g in inv.specimens:
-		total += specimen_value(g)
+		total += Market.specimen_value(g)
 	return total
 
 
@@ -56,11 +47,11 @@ func _list(inv) -> String:
 
 func prompt(player) -> String:
 	var inv = player.inv
-	var t := "[b]Gold buyer's box[/b]"
+	var t := "[b]Assay office[/b]   gold today: $%.2f a gram  (%s on yesterday)" % [Market.price(), Market.trend()]
 	if _empty(inv):
-		t += "\nMelt your gold into bars at the furnace, then ship them here."
+		t += "\nBring bars from your furnace, or nuggets and specimens."
 	else:
-		t += "\n%s Ship %s for $%d" % [Hud.key("E"), _list(inv), _total(inv)]
+		t += "\n%s Sell %s for $%d" % [Hud.key("E"), _list(inv), _total(inv)]
 	if inv.vial_grams() > 0.0:
 		t += "\n(Loose gold has to be melted into a bar first.)"
 	return t
@@ -69,10 +60,10 @@ func prompt(player) -> String:
 func interact(player) -> void:
 	var inv = player.inv
 	if _empty(inv):
-		player.hud.toast("Nothing to ship yet. Melt your gold into a bar at the furnace.")
+		player.hud.toast("Nothing to sell yet. Melt your gold into a bar at the furnace by your cabin.")
 		return
 	var total := _total(inv)
-	var msg := "Shipped " + _list(inv)
+	var msg := "Sold " + _list(inv)
 	inv.money += total
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
