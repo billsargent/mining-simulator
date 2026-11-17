@@ -41,6 +41,8 @@ const Atv = preload("res://scripts/vehicles/atv.gd")
 const Truck = preload("res://scripts/vehicles/truck.gd")
 const Trailer = preload("res://scripts/vehicles/trailer.gd")
 const Camp = preload("res://scripts/base/camp.gd")
+const Trommel = preload("res://scripts/machines/trommel.gd")
+const Excavator = preload("res://scripts/vehicles/excavator.gd")
 const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
@@ -444,6 +446,8 @@ func spawn_machine(kind: String):
 			m = DryWasher.new()
 		"camp":
 			m = Camp.new()
+		"trommel":
+			m = Trommel.new()
 		_:
 			return null
 	add_child(m)
@@ -460,6 +464,8 @@ func spawn_vehicle(kind: String):
 			v = Truck.new()
 		"trailer":
 			v = Trailer.new()
+		"excavator":
+			v = Excavator.new()
 		_:
 			return null
 	add_child(v)
@@ -487,6 +493,12 @@ func deliver(item: String) -> void:
 	if item == "high_banker":
 		spawn_machine("high_banker").place_at(base.slot_position(1), base.slot_yaw())
 		spawn_machine("pump").place_at(base.slot_position(2), base.slot_yaw())
+	elif item == "trommel":
+		spawn_machine("trommel").place_at(base.to_global(Vector3(-9.0, 0.0, 6.5)), base.slot_yaw())
+	elif item == "excavator":
+		var t := _parked(0)
+		t.origin += t.basis.x * 6.0
+		spawn_vehicle("excavator").global_transform = t
 	elif item == "camp":
 		var tent = spawn_machine("camp")
 		var n := 0
@@ -887,6 +899,21 @@ func _apply_view() -> void:
 				tents[0].place_at(Vector3(tp.x, 0.0, tp.y), 0.5)
 				from = tents[0].to_global(Vector3(2.5, 0.0, 5.5))
 				at = tents[0].global_position + Vector3(0, 0.7, 0)
+			"trommel":
+				if machine_of("trommel") == null:
+					deliver("trommel")
+					deliver("excavator")
+					deliver("high_banker")
+				var tp := _v3(world.river_point("Cabin Creek", 0.575, 4.5))
+				machine_of("pump").place_at(_v3(world.river_point("Cabin Creek", 0.57, 1.25)), 0.0)
+				machine_of("trommel").place_at(tp, 0.0)
+				var ex = vehicle_of("excavator")
+				var ep := tp + Vector3(0, 0, 5.0)
+				ep.y = terrain.height_at(ep.x, ep.z) + 0.3
+				ex.freeze = true
+				ex.global_transform = Transform3D(Basis(Vector3.UP, 0.6), ep)
+				from = tp + Vector3(7.0, 0.0, 9.0)
+				at = tp + Vector3(0, terrain.height_at(tp.x, tp.z) + 1.0, 2.5)
 			"cabin":
 				base.door.set_open(true, true)
 				from = base.to_global(Vector3(1.9, 0.1, -0.2))
@@ -1496,6 +1523,40 @@ func _selftest() -> void:
 	var floods_while_asleep := weather.storms_between(sd * 24.0 + 10.0, (sd + 1) * 24.0 + 7.0)
 	_check("a storm you sleep through still floods", floods_while_asleep == 1)
 	day_night.hours = 8.0
+
+	# The trommel and the mini-excavator: the excavator digs and loads the trommel.
+	inv.money += 9500
+	town.store.select("trommel")
+	town.store.interact(player)
+	town.store.select("excavator")
+	town.store.interact(player)
+	var trommel = machine_of("trommel")
+	var digger = vehicle_of("excavator")
+	_check("trommel and mini-excavator delivered", trommel != null and digger != null)
+	machine_of("high_banker").place_at(base.slot_position(1), base.slot_yaw())
+	var pmp = machine_of("pump")
+	if pmp.loaded_on != null:
+		pmp.loaded_on.unload_cargo(pmp)
+	pmp.place_at(_v3(world.river_point("Cabin Creek", 0.57, 1.25)), 0.0)
+	var tspot := _v3(world.river_point("Cabin Creek", 0.575, 4.5))
+	tspot.y = terrain.height_at(tspot.x, tspot.z)
+	trommel.place_at(tspot, 0.0)
+	trommel.refresh_pump()
+	_check("the trommel runs off the pump", trommel.is_running())
+	digger.freeze = true
+	var dspot := tspot + Vector3(0, 0, 5.0)
+	dspot.y = terrain.height_at(dspot.x, dspot.z) + 0.3
+	digger.global_transform = Transform3D(Basis(Vector3.UP, 0.0), dspot)
+	var dig_at: Vector3 = digger.to_global(Excavator.DIG_AHEAD)
+	var before_h := terrain.height_at(dig_at.x, dig_at.z)
+	for i in 3:
+		digger._cool = 0.0
+		digger.action(player)
+	print("  excavator: hopper %d/%d after 3 buckets, ground down %.2f m" % [trommel.hopper.size(), trommel.hopper_capacity, before_h - terrain.height_at(dig_at.x, dig_at.z)])
+	_check("the excavator digs and loads the trommel", trommel.hopper.size() >= 10 and terrain.height_at(dig_at.x, dig_at.z) < before_h - 0.3)
+	for i in 120:
+		await get_tree().physics_frame
+	_check("the trommel works through it", trommel.processed_total >= 3)
 
 	# Walk.
 	player.global_position = base.spawn_point
