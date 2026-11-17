@@ -596,13 +596,13 @@ func _apply_gear() -> void:
 
 
 func _setup_input() -> void:
-	Settings.apply_binds()
 	_bind_key("toggle_mouse", KEY_ESCAPE)
 	if not InputMap.has_action("dig"):
 		InputMap.add_action("dig")
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("dig", mb)
+	Settings.apply_binds()     # keys, then the controller buttons on every action
 
 
 func _bind_key(action: StringName, key: Key) -> void:
@@ -1697,7 +1697,48 @@ func _selftest() -> void:
 
 	# Settings: rebinding moves the action and swaps a clash; prompts follow the new key.
 	Settings.rebind("interact", KEY_G)
-	_check("rebound key works", Input.is_action_pressed("interact") == false and InputMap.action_get_events("interact")[0].physical_keycode == KEY_G)
+	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
+	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
+	var pad_ok := true
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up"]:
+		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
+			pad_ok = false
+	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var slot2 := InputEventJoypadButton.new()
+	slot2.device = 2
+	slot2.button_index = JOY_BUTTON_X
+	slot2.pressed = true
+	_check("a controller in any slot works", InputMap.event_is_action(slot2, "interact"))
+	var xb := InputEventJoypadButton.new()
+	xb.button_index = JOY_BUTTON_X
+	xb.pressed = true
+	Settings.note_input(xb)
+	_check("prompts show controller buttons", Settings.using_pad and Hud.key("E").contains("X") and Settings.help(false).contains("Right stick"))
+	Settings.rebind_pad("interact", JOY_BUTTON_Y)
+	var ybtn := InputMap.action_get_events("interact").filter(func(e): return e is InputEventJoypadButton)
+	_check("a controller button can be moved", ybtn.size() == 1 and ybtn[0].button_index == JOY_BUTTON_Y
+		and Settings.pad_button_for("carry") == JOY_BUTTON_X and Hud.key("E").contains("Y"))
+	Settings.reset_pad()
+	_check("controller buttons reset", Settings.pad_button_for("interact") == JOY_BUTTON_X and Settings.pad_button_for("carry") == JOY_BUTTON_Y)
+	map_view.toggle()
+	map_view.cursor = Vector2(1000, 1000)
+	var wp_before: int = map_view.waypoints.size()
+	var abtn := InputEventJoypadButton.new()
+	abtn.button_index = JOY_BUTTON_A
+	abtn.pressed = true
+	map_view._unhandled_input(abtn)
+	_check("the controller drops a waypoint on the map", map_view.waypoints.size() == wp_before + 1)
+	var xbtn2 := InputEventJoypadButton.new()
+	xbtn2.button_index = JOY_BUTTON_X
+	xbtn2.pressed = true
+	map_view._unhandled_input(xbtn2)
+	map_view.toggle()
+	_check("and removes it", map_view.waypoints.size() == wp_before and not map_view.visible)
+	var kb := InputEventKey.new()
+	kb.physical_keycode = KEY_W
+	kb.pressed = true
+	Settings.note_input(kb)
+	_check("keyboard takes prompts back", not Settings.using_pad and Hud.key("E").contains("G"))
 	_check("prompts show the new key", Hud.key("E").contains("G"))
 	Settings.rebind("interact", KEY_F)
 	_check("a clashing key swaps", Settings.key_for("carry") == KEY_G and Settings.key_for("interact") == KEY_F)

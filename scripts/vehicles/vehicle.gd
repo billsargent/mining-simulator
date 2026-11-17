@@ -175,6 +175,10 @@ var _tipped_t := 0.0
 
 func _physics_process(delta: float) -> void:
 	_enter_block -= delta
+	if driver != null and not _chase_on and not driver.map_open:
+		var look := Settings.pad_look(delta)
+		_yaw = clampf(_yaw - look.x, -1.9, 1.9)
+		_pitch = clampf(_pitch - look.y, -1.1, 0.9)
 	_engine_sound()
 	_keep_upright(delta)
 	if driver != null:

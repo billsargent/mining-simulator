@@ -256,11 +256,18 @@ func set_help(text: String) -> void:
 
 func set_pan_status(tilt: float, target: float, washing: bool, left: float, done: bool, lost: int) -> void:
 	var t := "[b]Panning[/b]\n"
-	t += "Hold [b]Left mouse[/b]   shake (gold sinks)\n"
-	t += "Hold [b]Right mouse[/b]   tilt and wash\n"
-	t += "Mouse forward/back   set the tilt\n"
-	t += "Mouse sideways   swirl\n"
-	t += "[b]Q[/b]   dump the pan\n\n"
+	if Settings.using_pad:
+		t += "Hold [b]RT[/b]   shake (gold sinks)\n"
+		t += "Hold [b]LT[/b]   tilt and wash\n"
+		t += "Right stick up/down   set the tilt\n"
+		t += "Right stick sideways   swirl\n"
+		t += "[b]B[/b]   dump the pan\n\n"
+	else:
+		t += "Hold [b]Left mouse[/b]   shake (gold sinks)\n"
+		t += "Hold [b]Right mouse[/b]   tilt and wash\n"
+		t += "Mouse forward/back   set the tilt\n"
+		t += "Mouse sideways   swirl\n"
+		t += "[b]%s[/b]   dump the pan\n\n" % Settings.key_name(Settings.key_for("pan_dump"))
 	var zone: String
 	if tilt < PanSim.WASH_START:
 		zone = "[color=#a0aaaa]level[/color]"
