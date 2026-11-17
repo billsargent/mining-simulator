@@ -60,5 +60,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --generate-notes \
-            build/Paystreak-windows.zip build/Paystreak-linux.tar.gz build/Paystreak-macos.zip
+          files="build/Paystreak-windows.zip build/Paystreak-linux.tar.gz build/Paystreak-macos.zip"
+          # A release made on GitHub's Releases page already exists (it made the tag): add the
+          # builds to it. Otherwise make the release.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" $files --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --generate-notes $files
+          fi
