@@ -78,4 +78,4 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Land detail is lazy: `world_gen._fi()` builds 64 m detail tiles (river distance, level, width, bend, richness, roads, bench) on first use, only where the coarse mask `_cnear` says a river (bit 1, dry wash bit 4) or band (bit 2) is near. Elsewhere `_base_at()` is a direct formula. Distant terrain (`step >= 8 m`), the map image and tree placement use `coarse_sample()` / `coarse_surface()`, which need no tiles. Creek boulders get exact heights when within 650 m (`scatter._stream_boulders`).
 - Check coarse accuracy: `godot --headless --path . --script res://tests/test_coarse.gd`. The world test prints how many detail tiles were built.
 - The player has a fall-through safety net on the surface: collision can lag a moment after a long teleport.
-
+- `scripts/vehicles/trailer.gd`: tandem flatbed, two cargo slots, hitched to the pickup with a `PinJoint3D` at `BALL`/`TONGUE`. Vehicles override `_hold_still()` to roll freely. Screenshot `--view=trailer`.
