@@ -11,11 +11,11 @@ extends RefCounted
 
 const SIZE := 2048.0
 const FINE := 2.0            # spacing of the near-river fields (metres)
-const FG := 1025
+const FG := int(SIZE / FINE) + 1   # fine grid points per side
 const BASE := 4.0            # spacing of the base height field
-const BG := 513
+const BG := int(SIZE / BASE) + 1
 const COARSE := 8.0          # spacing of the distance-to-water skeleton
-const CG := 257
+const CG := int(SIZE / COARSE) + 1
 const R_FINE := 30.0         # channel and bank detail out to this distance from a centerline
 const R_STAMP := 34.0
 const MAX_BEND := 0.045

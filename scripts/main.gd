@@ -1065,6 +1065,7 @@ func _selftest() -> void:
 	base.crusher.set_powered(true)
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
+	inv.specimens = PackedFloat32Array()    # a vein chip earlier may have dropped one at random
 	inv.add_specimen(0.4)
 	money_before = inv.money
 	town.assay.interact(player)
