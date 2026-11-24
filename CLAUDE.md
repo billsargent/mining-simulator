@@ -17,7 +17,7 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 - Sluice recovery by angle: `godot --headless --path . --script res://tests/test_recovery.gd`
 - Whole loop (dig, sluice, cleanout, pan, smelt, sell, order, high banker + pump, carry, save, walk): `godot --headless --path . -- --selftest`
 - Save/load round trip: `godot --headless --path . -- --savetest=write`, then `-- --savetest=read`
-- Screenshot (needs a window, not headless): `godot --path . -- --shot=<png> [--cam=x,z,yaw,pitch] [--demo] [--pan=fresh|shaken|washing|done] [--dig=N] [--carry=sluice] [--menu]`
+- Screenshot (needs a window, not headless; pass `--position 20000,20000` first so the window opens off screen, and the game keeps test windows off screen and unfocusable; `--show` keeps it visible): `godot --position 20000,20000 --path . -- --shot=<png> [--cam=x,z,yaw,pitch] [--demo] [--pan=fresh|shaken|washing|done] [--dig=N] [--carry=sluice] [--menu]`
   - `--demo` puts the sluice in the creek and sets up the high banker and pump by the cabin. Good camera spots: cabin `--cam=111.2,134.2,-145.4,-6`; equipment `--cam=125,133,-10,-14`.
 - Frame rate: `godot --path . -- --fps [--cam=...]`
 

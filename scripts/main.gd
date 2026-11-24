@@ -98,6 +98,10 @@ func _ready() -> void:
 	_saving = _opts.is_empty()
 	Settings.persist = _opts.is_empty()
 	Settings.grab_mouse = _opts.is_empty() or _opts.has("mouse")
+	if not _opts.is_empty() and not _opts.has("mouse") and not _opts.has("show") and DisplayServer.get_name() != "headless":
+		# Test and screenshot runs stay out of the way: off screen and never taking focus.
+		get_window().unfocusable = true
+		get_window().position = Vector2i(20000, 20000)
 	Settings.load_file()
 	if _opts.has("quality"):
 		Settings.quality = clampi(int(_opts["quality"]), 0, 2)
