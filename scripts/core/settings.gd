@@ -17,6 +17,7 @@ const ACTIONS := [
 const QUALITY_NAMES := ["Low", "Medium", "High"]
 
 static var hazards := true          # mine hazards: lamp batteries, bad air, rotten ground
+static var check_updates := true   # ask GitHub once at start for a newer release
 static var persist := true
 static var grab_mouse := true       # off for test and screenshot runs, so they never take the mouse
 static var mouse_sens := 1.0        # multiplier on the base look speed
@@ -48,6 +49,7 @@ static func mouse_captured() -> bool:
 
 static func _defaults() -> void:
 	hazards = true
+	check_updates = true
 	mouse_sens = 1.0
 	invert_y = false
 	fov = 75.0
@@ -69,6 +71,7 @@ static func load_file() -> void:
 	if cfg.load(PATH) != OK:
 		return
 	hazards = cfg.get_value("game", "hazards", true)
+	check_updates = cfg.get_value("game", "check_updates", true)
 	mouse_sens = clampf(cfg.get_value("controls", "mouse_sens", 1.0), 0.2, 3.0)
 	invert_y = cfg.get_value("controls", "invert_y", false)
 	fov = clampf(cfg.get_value("graphics", "fov", 75.0), 60.0, 100.0)
@@ -89,6 +92,7 @@ static func save_file() -> void:
 		return
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "hazards", hazards)
+	cfg.set_value("game", "check_updates", check_updates)
 	cfg.set_value("controls", "mouse_sens", mouse_sens)
 	cfg.set_value("controls", "invert_y", invert_y)
 	cfg.set_value("controls", "binds", binds)
