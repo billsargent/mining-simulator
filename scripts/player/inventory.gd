@@ -26,6 +26,8 @@ const GOALS = [
 	["crushed", "Take the ore home and pound it in the ore crusher by the wash tub, then pan the jar."],
 	["claim", "Buy a claim at the claims office in town. Test-pan it first: machines only run on ground you own."],
 	["find", "The old crew left things behind in the mine. Look in the far corners and read what you find."],
+	["ledge", "Grandpa hunted thirty years for Dutch's ledge. The claims office in town still has it on the books: Dutch's Ledge, up Granite Creek. Save up $25,000 and buy it back for the family."],
+	["ledge_gold", "Go up Granite Creek to Dutch's Ledge (north on the map), dig to bedrock and pan what the ledge has shed."],
 ]
 
 const ORE_CAPACITY := 10
@@ -232,7 +234,7 @@ func next_goal() -> String:
 	for g in GOALS:
 		if not goals_done.has(g[0]):
 			return g[1]
-	return "That's everything in this build. Keep prospecting: the old bench above Cabin Creek is rich."
+	return "You found Grandpa's ledge. Keep prospecting: there is always more ground over the next ridge."
 
 
 func to_dict() -> Dictionary:

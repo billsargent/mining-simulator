@@ -574,6 +574,8 @@ Good showing! That's how you read a creek: look for where the water slows."
 		var src: Vector3 = _pan_dirt.source
 		if src != Vector3.ZERO:
 			inv.log_sample(src.x, src.z, grams)
+			if not kept.is_empty() and Claims.is_owned("ledge") and Claims.at(src.x, src.z).get("id", "") == "ledge":
+				_found_ledge()
 	if not lost.is_empty():
 		msg += "   (%d washed out)" % lost.size()
 	if not kept.is_empty():
@@ -665,6 +667,21 @@ func _update_prompt() -> void:
 	hud.set_prompt("      ".join(parts))
 
 
+const LEDGE_STORY := "The gold in this pan is coarse and rough, not rounded by the creek. It hasn't travelled far. Somewhere just up the slope is the ledge it came from: Dutch's Ledge, the one Grandpa looked for over thirty years.
+
+"	+ "He wrote that he never found it. You did, and you bought it back with gold you dug yourself.
+
+"	+ "The cabin, the creek and now the ledge are the family's again. There is plenty of gravel left to work, and the ground is all yours."
+
+
+## The first gold panned from Dutch's Ledge after buying it: the end of the story, though play goes on.
+func _found_ledge() -> void:
+	if not inv.complete_goal("ledge_gold"):
+		return
+	hud.show_note("Dutch's Ledge", LEDGE_STORY)
+	hud.toast("You made it. Grandpa's ledge is found, and it's yours.", Color(1.0, 0.85, 0.35), 10.0)
+
+
 func refresh_hud() -> void:
 	var extra := PackedStringArray()
 	if mine == null and not Claims.list.is_empty():
@@ -672,6 +689,8 @@ func refresh_hud() -> void:
 		extra.append(terrain.world.region_name(p.x, p.z))
 		var c := Claims.at(p.x, p.z)
 		if c.is_empty():
+			extra.append("Public land: pan and shovel only")
+		elif not Claims.known(c):
 			extra.append("Public land: pan and shovel only")
 		elif Claims.is_owned(c["id"]):
 			extra.append("%s: yours" % c["name"])

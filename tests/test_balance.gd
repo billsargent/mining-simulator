@@ -120,6 +120,23 @@ func _initialize() -> void:
 				price_ok = false
 				print("  %s costs more than %s but earns less" % [r2["id"], r["id"]])
 	_check("dearer claims earn at least about as much", price_ok)
+	# The endgame: Dutch's Ledge should take a good while of mid-game work (8 to 20 hours of the
+	# best high banker claim) and then be the richest ground there is.
+	var ledge_row := {}
+	var best_hb := 0.0
+	var best_other := 0.0
+	for r in rows:
+		if r["id"] == "ledge":
+			ledge_row = r
+		else:
+			best_hb = maxf(best_hb, r["per_h"][2])
+			best_other = maxf(best_other, r["rich"])
+	_check("Dutch's Ledge exists", not ledge_row.is_empty())
+	if not ledge_row.is_empty():
+		var hours: float = float(ledge_row["price"]) / best_hb
+		print("  Dutch's Ledge: $%d is %.1f hours of the best high banker claim" % [ledge_row["price"], hours])
+		_check("Dutch's Ledge takes 8 to 20 hours of mid-game work", hours >= 8.0 and hours <= 20.0)
+		_check("Dutch's Ledge is the richest claim", ledge_row["rich"] > best_other)
 	_check("garnets are a side line, not a goldmine", g > 0 and g < home_row["per_h"][1])
 	print("BALANCE complete: %d failed" % _fails)
 	quit(1 if _fails > 0 else 0)

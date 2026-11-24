@@ -21,6 +21,8 @@ func prompt(player) -> String:
 	var t := "[b]Claims office[/b]   you have $%d\nMachines only run on a claim you own. Pan a claim first to see if it pays." % player.inv.money
 	for i in Claims.list.size():
 		var c: Dictionary = Claims.list[i]
+		if not Claims.known(c):
+			continue
 		var line := "%s, %s  $%d" % [c["name"], c["river"], c["price"]]
 		if Claims.is_owned(c["id"]):
 			line = "[color=#80a080]%s, %s  (yours)[/color]" % [c["name"], c["river"]]
@@ -31,7 +33,10 @@ func prompt(player) -> String:
 
 
 func scroll(_player, dir: int) -> void:
-	_sel = posmod(_sel - dir, Claims.list.size())
+	for _i in Claims.list.size():
+		_sel = posmod(_sel - dir, Claims.list.size())
+		if Claims.known(Claims.list[_sel]):
+			return
 
 
 func select(id: String) -> void:
@@ -43,6 +48,8 @@ func select(id: String) -> void:
 func interact(player) -> void:
 	var inv = player.inv
 	var c: Dictionary = Claims.list[_sel]
+	if not Claims.known(c):
+		return
 	if Claims.is_owned(c["id"]):
 		player.hud.toast("%s is already yours." % c["name"])
 		return
@@ -53,5 +60,10 @@ func interact(player) -> void:
 	inv.money -= price
 	Sfx.play("sell", null, -4.0)
 	inv.claims[c["id"]] = true
+	if c["id"] == "ledge":
+		inv.complete_goal("claim")
+		inv.complete_goal("ledge")
+		player.hud.toast("Dutch's Ledge is yours: Grandpa's lost ground, bought back. Go up Granite Creek and pan it.", Color(1.0, 0.85, 0.35), 8.0)
+		return
 	inv.complete_goal("claim")
 	player.hud.toast("%s on %s is yours. Your machines will run there now." % [c["name"], c["river"]], Color(0.6, 1.0, 0.6), 6.0)
