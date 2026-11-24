@@ -352,6 +352,22 @@ static func prompt_key(k: String) -> String:
 	return k
 
 
+## Free text (toasts, goals, notes, catalog lines) names mouse buttons and keys in words; on the
+## controller this swaps them for the pad buttons from `_pad_map()`.
+static func pad_words(text: String) -> String:
+	if not using_pad:
+		return text
+	for w in ["left mouse", "Left mouse"]:
+		text = text.replace(w, pad_name("dig"))
+	for w in ["right mouse", "Right mouse"]:
+		text = text.replace(w, pad_name("pan_wash"))
+	for a in ACTIONS:
+		var k := key_name(a[2])
+		if k.length() == 1:
+			text = text.replace("(%s)" % k, "(%s)" % pad_name(a[0])).replace("%s or walk away" % k, "%s or walk away" % pad_name(a[0]))
+	return text
+
+
 # --- Graphics -----------------------------------------------------------------------------------
 
 ## Remember the environment and sun so quality changes can reach them.

@@ -286,13 +286,13 @@ func _draw_guide() -> void:
 
 
 func set_goal(text: String) -> void:
-	var t := "Next: " + text
+	var t := "Next: " + Settings.pad_words(text)
 	if _goal.text != t:
 		_goal.text = t
 
 
 func toast(text: String, color: Color = Color(1, 1, 1), seconds: float = 3.5) -> void:
-	_toast.text = text
+	_toast.text = Settings.pad_words(text)
 	_toast.add_theme_color_override("font_color", color)
 	_toast.modulate.a = 1.0
 	_toast_left = seconds

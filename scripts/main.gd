@@ -1871,10 +1871,16 @@ func _selftest() -> void:
 	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
 	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
 	var pad_ok := true
-	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up", "tool_next", "tool_prev", "inventory"]:
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "pan_dump", "scroll_up", "scroll_down",
+			"tool_next", "tool_prev", "inventory", "sprint", "camera", "headlamp", "scoop", "drive_gas", "drive_reverse"]:
 		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
 			pad_ok = false
 	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
+	var was_pad := Settings.using_pad
+	Settings.using_pad = true
+	var pw := Settings.pad_words("Dig (left mouse), wash (right mouse), carry (F). E or walk away")
+	_check("free text names pad buttons", not ("mouse" in pw) and "(Y)" in pw and "X or walk away" in pw)
+	Settings.using_pad = was_pad
 	var slot2 := InputEventJoypadButton.new()
 	slot2.device = 2
 	slot2.button_index = JOY_BUTTON_X
