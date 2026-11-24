@@ -1570,6 +1570,16 @@ func _selftest() -> void:
 	base.chest.interact(player)
 	_check("and gives them back", inv.bars.size() == 1 and inv.nuggets.size() == 1 and inv.ore.size() == 1 and inv.cons.size() == jars_before
 		and inv.chest_bars.is_empty() and absf(inv.vial_grams() - 0.05) < 0.001 and inv.garnets.size() == 1)
+	# A full ore sack: take what fits, the rest stays put.
+	inv.ore.clear()
+	for i in inv.ore_capacity() - 1:
+		inv.ore.append(Paydirt.new())
+	inv.chest_ore = [Paydirt.new(), Paydirt.new(), Paydirt.new()]
+	var moved_ore: Array = inv.take_from_chest()
+	_check("a full ore sack leaves the rest in the chest", int(moved_ore[1]) == 1 and inv.ore.size() == inv.ore_capacity()
+		and inv.chest_ore.size() == 2)
+	inv.ore.clear()
+	inv.chest_ore = []
 	_check("the bunk is inside", base.to_local(base.bed.global_position).z < HomeBase.CABIN_Z)
 
 	# The suction dredge: bought with its permit, floated on your claim, it feeds itself.
