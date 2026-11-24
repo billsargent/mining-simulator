@@ -33,6 +33,10 @@ var _mask_tex: ImageTexture
 var _frame: Control
 var _icons: Control
 var _reveal_t := 0.0
+var _taken: Array[Rect2] = []     # label boxes drawn this frame, so labels don't pile up
+
+const PLACE_NAMES := {"ruin_cabin": "Ruined cabin", "wreck": "Old wreck", "graves": "Graves", "ore_cart": "Ore cart",
+	"wagon": "Old wagon", "old_sluice": "Old sluice", "chimney": "Lone chimney", "prospect": "Prospect hole"}
 
 
 class Icons extends Control:
@@ -248,6 +252,7 @@ func save_state() -> Dictionary:
 func draw_icons(c: Control) -> void:
 	var s := c.size.x / WorldGen.SIZE
 	var font := c.get_theme_default_font()
+	_taken.clear()
 	if Settings.using_pad:
 		var q := cursor * s
 		for d: Vector2 in [Vector2(1, 0), Vector2(0, 1)]:
@@ -270,10 +275,11 @@ func draw_icons(c: Control) -> void:
 		var mine_now: bool = Claims.is_owned(cl["id"])
 		var q: Vector2 = (cl["pos"] as Vector2) * s
 		var ring := Color(0.1, 0.5, 0.15) if mine_now else Color(0.45, 0.35, 0.2)
+		var fill := Color(0.2, 0.7, 0.25, 0.18) if mine_now else Color(0.85, 0.55, 0.15, 0.12)
+		c.draw_circle(q, float(cl["radius"]) * s, fill)
 		c.draw_arc(q, float(cl["radius"]) * s, 0.0, TAU, 48, ring, 2.5 if mine_now else 1.5)
-		if cl["id"] != "home":
-			var tag: String = cl["name"] if mine_now else "%s  $%d" % [cl["name"], cl["price"]]
-			_text(c, font, q + Vector2(-30, float(cl["radius"]) * s + 13), tag, 12, ring.darkened(0.2))
+		var tag: String = "%s (yours)" % cl["name"] if mine_now else "%s  $%d" % [cl["name"], cl["price"]]
+		_label(c, font, q + Vector2(-30, float(cl["radius"]) * s + 13), tag, 12, ring.darkened(0.2))
 	var places := [["base", "Grandpa's cabin", Color(0.75, 0.3, 0.1)], ["town", "Sable Crossing", Color(0.25, 0.2, 0.5)], ["camp", "Last Chance camp", Color(0.4, 0.3, 0.2)],
 		["mine", "Old mine", Color(0.3, 0.3, 0.3)], ["garnet", "Garnet Beach", Color(0.6, 0.08, 0.15)]]
 	for pl in places:
@@ -284,33 +290,63 @@ func draw_icons(c: Control) -> void:
 		if pl[0] in ["base", "town", "garnet"] or is_explored(pos.x, pos.y):
 			var q := pos * s
 			c.draw_rect(Rect2(q - Vector2(5, 5), Vector2(10, 10)), pl[2])
-			_text(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05))
+			_label(c, font, q + Vector2(8, 4), pl[1], 14, Color(0.15, 0.1, 0.05), true)
+	var finds: Dictionary = main.player.inv.finds
+	for rp in world.places:
+		var rpos: Vector2 = rp["pos"]
+		if rp["kind"] == "sign":
+			if is_explored(rpos.x, rpos.y):
+				c.draw_rect(Rect2(rpos * s - Vector2(2, 2), Vector2(4, 4)), Color(0.4, 0.28, 0.15, 0.8))
+		elif finds.has(rp["id"]):
+			var rq := rpos * s
+			c.draw_circle(rq, 4.0, Color(0.35, 0.25, 0.15))
+			c.draw_circle(rq, 2.5, Color(0.85, 0.75, 0.55))
+			_label(c, font, rq + Vector2(7, 4), PLACE_NAMES.get(rp["kind"], "Old place"), 11, Color(0.3, 0.2, 0.1))
 	for m in main.get_tree().get_nodes_in_group("machines"):
 		if m.kind == "camp" and m.loaded_on == null:
 			var cq := Vector2(m.global_position.x, m.global_position.z) * s
 			c.draw_colored_polygon(PackedVector2Array([cq + Vector2(0, -7), cq + Vector2(6, 5), cq + Vector2(-6, 5)]), Color(0.2, 0.45, 0.15))
-			_text(c, font, cq + Vector2(8, 4), m.camp_name(), 12, Color(0.15, 0.35, 0.1))
+			_label(c, font, cq + Vector2(8, 4), m.camp_name(), 12, Color(0.15, 0.35, 0.1))
 	for v in main.get_tree().get_nodes_in_group("vehicles"):
 		var q := Vector2(v.global_position.x, v.global_position.z) * s
 		c.draw_rect(Rect2(q - Vector2(4, 4), Vector2(8, 8)), Color(0.15, 0.35, 0.8))
-		_text(c, font, q + Vector2(7, 4), v.display_name, 12, Color(0.1, 0.2, 0.5))
+		_label(c, font, q + Vector2(7, 4), v.display_name, 12, Color(0.1, 0.2, 0.5))
 	for m in marks:
 		var q: Vector2 = (m[0] as Vector2) * s
 		var ink := Color(0.6, 0.08, 0.05)
 		c.draw_line(q + Vector2(-6, -6), q + Vector2(6, 6), ink, 3.0)
 		c.draw_line(q + Vector2(-6, 6), q + Vector2(6, -6), ink, 3.0)
-		_text(c, font, q + Vector2(9, 4), m[1], 14, ink)
+		_label(c, font, q + Vector2(9, 4), m[1], 14, ink, true)
 	for i in waypoints.size():
 		var q := waypoints[i] * s
 		c.draw_circle(q, 7.0, Color(0.1, 0.1, 0.1))
 		c.draw_circle(q, 5.5, Color(1.0, 0.85, 0.2))
 		_text(c, font, q + Vector2(-3, 4), str(i + 1), 11, Color(0.1, 0.1, 0.1))
+		_label(c, font, q + Vector2(9, 4), "Waypoint %d  %d m" % [i + 1, roundi(waypoints[i].distance_to(_here()))], 11, Color(0.15, 0.12, 0.02))
 	var p: Vector3 = main.focus_position()
 	var h: float = main.heading()
 	var fwd := Vector2(sin(h), -cos(h))
 	var side := Vector2(-fwd.y, fwd.x)
 	var q0 := Vector2(p.x, p.z) * s
 	c.draw_colored_polygon(PackedVector2Array([q0 + fwd * 11.0, q0 - fwd * 6.0 + side * 6.0, q0 - fwd * 6.0 - side * 6.0]), Color(0.85, 0.1, 0.1))
+
+
+## A label that skips itself if it would sit on top of one already drawn (keeps the map tidy).
+## Labels that must show (marks) are drawn anyway but still reserve their space.
+func _label(c: Control, font: Font, pos: Vector2, text: String, size: int, col: Color, force: bool = false) -> void:
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var box := Rect2(pos - Vector2(0, size), Vector2(w, size + 2))
+	if not force:
+		for t in _taken:
+			if t.intersects(box):
+				return
+	_taken.append(box)
+	_text(c, font, pos, text, size, col)
+
+
+func _here() -> Vector2:
+	var p: Vector3 = main.focus_position()
+	return Vector2(p.x, p.z)
 
 
 func _text(c: Control, font: Font, pos: Vector2, text: String, size: int, col: Color) -> void:
