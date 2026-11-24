@@ -24,6 +24,8 @@ var _blackout := 0.0
 var _blackout_time := 1.0
 var _note_box: PanelContainer
 var _note_text: RichTextLabel
+var _hotbar: HBoxContainer
+var _hotbar_key := ""
 
 
 ## A key name formatted for prompts, e.g. key("E") -> [E] in yellow.
@@ -132,6 +134,13 @@ func _ready() -> void:
 	_note_box.visible = false
 	root.add_child(_note_box)
 
+	_hotbar = HBoxContainer.new()
+	_hotbar.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hotbar.add_theme_constant_override("separation", 6)
+	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor(_hotbar, Vector4(0.5, 1, 0.5, 1), Vector4(-300, -164, 300, -108))
+	root.add_child(_hotbar)
+
 	_help = _label(16)
 	_help.text = Settings.help(false)
 	_help.modulate = Color(1, 1, 1, 0.75)
@@ -167,6 +176,46 @@ func show_note(title: String, body: String) -> void:
 
 func hide_note() -> void:
 	_note_box.visible = false
+
+
+## The tool strip at the bottom: one box per tool, numbered, the one in hand lit up.
+func set_hotbar(names: Array, selected: int) -> void:
+	var k := "%s|%d|%s" % [",".join(names), selected, Settings.using_pad]
+	if k == _hotbar_key:
+		return
+	_hotbar_key = k
+	for c in _hotbar.get_children():
+		c.queue_free()
+	for i in names.size():
+		var box := PanelContainer.new()
+		var sb := StyleBoxFlat.new()
+		var on := i == selected
+		sb.bg_color = Color(0.25, 0.2, 0.08, 0.85) if on else Color(0, 0, 0, 0.45)
+		sb.border_color = Color(1.0, 0.85, 0.4) if on else Color(1, 1, 1, 0.25)
+		sb.set_border_width_all(2)
+		sb.set_corner_radius_all(4)
+		sb.set_content_margin_all(6)
+		box.add_theme_stylebox_override("panel", sb)
+		box.custom_minimum_size = Vector2(96, 0)
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var l := Label.new()
+		l.text = "%s
+%s" % ["" if Settings.using_pad else str(i + 1), names[i]]
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.add_theme_font_size_override("font_size", 14)
+		l.modulate = Color(1, 1, 1, 1.0 if on else 0.7)
+		box.add_child(l)
+		_hotbar.add_child(box)
+	if Settings.using_pad and names.size() > 1:
+		var hint := Label.new()
+		hint.text = "LB / RB"
+		hint.add_theme_font_size_override("font_size", 13)
+		hint.modulate = Color(1, 1, 1, 0.6)
+		_hotbar.add_child(hint)
+
+
+func show_hotbar(on: bool) -> void:
+	_hotbar.visible = on
 
 
 func note_open() -> bool:
@@ -252,6 +301,7 @@ func toast(text: String, color: Color = Color(1, 1, 1), seconds: float = 3.5) ->
 func show_pan(on: bool) -> void:
 	_pan_box.visible = on
 	_help.visible = not on
+	_hotbar.visible = not on
 
 
 func set_help(text: String) -> void:

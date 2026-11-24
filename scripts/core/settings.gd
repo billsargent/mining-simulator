@@ -12,6 +12,7 @@ const ACTIONS := [
 	["interact", "Use", KEY_E], ["carry", "Carry / pick up", KEY_F],
 	["dump", "Dump bucket", KEY_R], ["pan_dump", "Tip the pan", KEY_Q],
 	["camera", "Camera view", KEY_V], ["map", "Map", KEY_M], ["headlamp", "Headlamp", KEY_L],
+	["inventory", "Inventory", KEY_TAB],
 ]
 const QUALITY_NAMES := ["Low", "Medium", "High"]
 
@@ -135,6 +136,9 @@ static func _pad_map() -> Dictionary:
 		# Driving: left trigger forward, right trigger reverse; Y works the excavator.
 		"drive_gas": [[JOY_AXIS_TRIGGER_LEFT, 1.0], "LT"], "drive_reverse": [[JOY_AXIS_TRIGGER_RIGHT, 1.0], "RT"],
 		"scoop": [JOY_BUTTON_Y, "Y"],
+		# Tools: LB and RB step through the hotbar; D-pad down shows what you carry.
+		"tool_prev": [JOY_BUTTON_LEFT_SHOULDER, "LB"], "tool_next": [JOY_BUTTON_RIGHT_SHOULDER, "RB"],
+		"inventory": [JOY_BUTTON_DPAD_DOWN, "D-pad down"],
 	}
 
 
@@ -191,7 +195,7 @@ static func pad_look(delta: float) -> Vector2:
 
 ## Controller actions the player may move to another button, in menu order. The pan's dump
 ## follows the bucket's dump; the sticks, triggers, D-pad and Menu stay put.
-const PAD_REBINDABLE := ["jump", "interact", "carry", "dump", "sprint", "camera", "map", "headlamp"]
+const PAD_REBINDABLE := ["jump", "interact", "carry", "dump", "sprint", "camera", "map", "headlamp", "inventory"]
 const BUTTON_NAMES := {
 	JOY_BUTTON_A: "A", JOY_BUTTON_B: "B", JOY_BUTTON_X: "X", JOY_BUTTON_Y: "Y",
 	JOY_BUTTON_LEFT_SHOULDER: "LB", JOY_BUTTON_RIGHT_SHOULDER: "RB", JOY_BUTTON_BACK: "View",
@@ -401,13 +405,13 @@ static func help(driving: bool) -> String:
 		if driving:
 			return "LT forward   RT reverse   Left stick steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Menu pause" % [
 				n.call("jump"), n.call("camera"), n.call("dump"), n.call("interact"), n.call("map")]
-		return "Left stick move   Right stick look   %s sprint   %s jump   RT dig   %s use / pan   %s carry   D-pad adjust   %s dump bucket   %s map   %s headlamp   Menu pause" % [
-			n.call("sprint"), n.call("jump"), n.call("interact"), n.call("carry"), n.call("dump"), n.call("map"), n.call("headlamp")]
+		return "Left stick move   Right stick look   %s sprint   %s jump   RT use tool   LB/RB tools   %s use / pan   %s carry   D-pad adjust   %s dump bucket   %s map   %s headlamp   %s inventory   Menu pause" % [
+			n.call("sprint"), n.call("jump"), n.call("interact"), n.call("carry"), n.call("dump"), n.call("map"), n.call("headlamp"), n.call("inventory")]
 	var k := func(a: String) -> String: return key_name(key_for(a))
 	var move: String = k.call("move_forward") + k.call("move_left") + k.call("move_back") + k.call("move_right")
 	if driving:
 		return "%s/%s drive   %s/%s steer   %s brake   %s camera   %s flip upright   %s get out   %s map   Esc menu" % [
 			k.call("move_forward"), k.call("move_back"), k.call("move_left"), k.call("move_right"), k.call("jump"),
 			k.call("camera"), k.call("dump"), k.call("interact"), k.call("map")]
-	return "%s move   %s sprint   %s jump   LMB dig   %s use / pan   %s carry   Wheel adjust   %s dump bucket   %s map   %s headlamp   Esc menu" % [
-		move, k.call("sprint"), k.call("jump"), k.call("interact"), k.call("carry"), k.call("dump"), k.call("map"), k.call("headlamp")]
+	return "%s move   %s sprint   %s jump   LMB use tool   1-8 tools   %s use / pan   %s carry   %s dump bucket   %s map   %s headlamp   %s inventory   Esc menu" % [
+		move, k.call("sprint"), k.call("jump"), k.call("interact"), k.call("carry"), k.call("dump"), k.call("map"), k.call("headlamp"), k.call("inventory")]
