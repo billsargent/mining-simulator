@@ -10,6 +10,7 @@ const Terrain = preload("res://scripts/world/world_terrain.gd")
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const Sfx = preload("res://scripts/core/sfx.gd")
+const Glint = preload("res://scripts/gold/glint.gd")
 
 const CARPET := Color(0.16, 0.2, 0.16)
 const BLACK_SAND := Color(0.05, 0.05, 0.06)
@@ -353,7 +354,7 @@ func _build_bed(parent: Node3D, length: float, width: float) -> void:
 	_flecks.visible_instance_count = 0
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = _flecks
-	mmi.material_override = Parts.gold()
+	mmi.material_override = Glint.material(0.6, 7.0)
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mmi)
 	# Muddy water and tailings spilling out of the end.

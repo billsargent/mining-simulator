@@ -12,6 +12,9 @@ signal cancelled
 
 const Settings = preload("res://scripts/core/settings.gd")
 const PanSim = preload("res://scripts/panning/pan_sim.gd")
+const Glint = preload("res://scripts/gold/glint.gd")
+const Sfx = preload("res://scripts/core/sfx.gd")
+const Inventory = preload("res://scripts/player/inventory.gd")
 
 const VIEW_ANGLE := 48.0      # how far the pan is tipped toward you so you can see in
 const FLOOR_R := 0.115
@@ -46,6 +49,8 @@ var _sediment: MeshInstance3D
 var _sediment_mat: StandardMaterial3D
 var _revealed := false
 var _stall_t := 0.0
+var _nugget := -1             # grain index of a nugget being shown off
+var _nugget_t := -1.0
 var _stall_mark := 1.0
 var _rng := RandomNumberGenerator.new()
 var _hidden := Transform3D(Basis.from_scale(Vector3(0.0001, 0.0001, 0.0001)), Vector3(0, -5, 0))
@@ -99,9 +104,15 @@ func _process(delta: float) -> void:
 	if sim.done and not _revealed:
 		_revealed = true
 		sim.arrange_gold_tail(PI / 2.0)
+		_show_nugget()
 	var off := Vector3(sin(_t * 0.9) * 0.002, sin(_t * 1.3) * 0.0015, 0.0)
 	if shaking and not sim.done:
 		off += Vector3(sin(_t * 52.0) * 0.005, sin(_t * 31.0) * 0.002, cos(_t * 44.0) * 0.004)
+	if _nugget_t >= 0.0:
+		# Close-up: bring the pan up toward the eye for a moment, then ease back a little.
+		_nugget_t += delta
+		var k := smoothstep(0.0, 0.5, _nugget_t) * (1.0 - 0.6 * smoothstep(2.2, 3.2, _nugget_t))
+		off += Vector3(0.0, 0.05, 0.16) * k
 	_body.position = off
 	_body.rotation = Vector3(deg_to_rad(VIEW_ANGLE - tilt), 0.0, 0.0)
 	_update_grains()
@@ -126,6 +137,21 @@ func _check_stall(delta: float, left: float) -> void:
 	if _stall_t > 3.5 and hud:
 		hud.toast("Not much is washing off. Shake the pan (hold left mouse) to bring the light stuff to the top.", Color(1.0, 0.9, 0.6), 4.0)
 		_stall_t = 0.0
+
+
+## A nugget in the pan: a ringing chime, a close-up, and the piece swells and glints.
+func _show_nugget() -> void:
+	var best := 0.0
+	for i in sim.count():
+		if sim.kind[i] == PanSim.GOLD and sim.state[i] == 0 and sim.mass[i] >= maxf(best, Inventory.NUGGET_MASS):
+			best = sim.mass[i]
+			_nugget = i
+	if _nugget < 0:
+		return
+	_nugget_t = 0.0
+	Sfx.play("nugget")
+	if hud:
+		hud.toast("A nugget!", Color(1.0, 0.85, 0.3), 2.5)
 
 
 func _on_gold_washed_out(_mass: float) -> void:
@@ -292,13 +318,7 @@ func _build_grains() -> void:
 	grain_mat.vertex_color_use_as_albedo = true
 	grain_mat.vertex_color_is_srgb = true
 	grain_mat.roughness = 0.75
-	var gold_mat := StandardMaterial3D.new()
-	gold_mat.albedo_color = Color(1.0, 0.8, 0.3)
-	gold_mat.metallic = 0.65
-	gold_mat.roughness = 0.32
-	gold_mat.emission_enabled = true
-	gold_mat.emission = Color(1.0, 0.72, 0.2)
-	gold_mat.emission_energy_multiplier = 0.7
+	var gold_mat := Glint.material(0.7, 8.0)
 	_grain_mm = _make_multimesh(sphere, n - n_gold, true, grain_mat)
 	_gold_mm = _make_multimesh(_flake_mesh(), n_gold, false, gold_mat)
 	_slot.resize(n)
@@ -400,7 +420,12 @@ func _update_grains() -> void:
 		var p := _bed_pos(sim.r[i], sim.th[i], hn * bed)
 		if st == 1:
 			p = _wash_path(p, sim.out_t[i])
-		mm.set_instance_transform(_slot[i], Transform3D(_basis[i], p))
+		var b := _basis[i]
+		if i == _nugget and _nugget_t >= 0.0:
+			var pulse := 1.0 + 0.5 * smoothstep(0.0, 0.4, _nugget_t) * (1.0 - 0.5 * smoothstep(0.8, 2.0, _nugget_t))
+			b = b.scaled(Vector3(pulse, pulse, pulse))
+			p.y += 0.004 * pulse
+		mm.set_instance_transform(_slot[i], Transform3D(b, p))
 
 
 func _bed_pos(rr: float, angle: float, lift: float) -> Vector3:
