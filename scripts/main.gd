@@ -88,6 +88,7 @@ var _loading: CanvasLayer
 var _loading_label: Label
 var _loading_bar: ProgressBar
 var _dark := false
+var _news_day := -1
 var _compass_t := 0.0
 var _tutorial_spot := Vector2.ZERO
 
@@ -217,6 +218,10 @@ func _process(delta: float) -> void:
 	scatter.focus = f
 	player.clock = day_night.clock_text()
 	Market.day = day_night.day
+	if _news_day != Market.day:
+		_news_day = Market.day
+		if Market.news() != "":
+			hud.toast(Market.news() + " (Assay office, Sable Crossing.)", Color(0.95, 0.85, 0.5), 7.0)
 	var dark := day_night.is_dark()
 	if dark != _dark:
 		_dark = dark
@@ -1216,7 +1221,17 @@ func _selftest() -> void:
 	for d in range(1, 40):
 		lo = minf(lo, Market.price(d))
 		hi = maxf(hi, Market.price(d))
-	_check("the gold price drifts, but not wildly", hi - lo > 8.0 and lo > Market.BASE_PRICE * 0.8 and hi < Market.BASE_PRICE * 1.2)
+	_check("the gold price drifts, but not wildly", hi - lo > 8.0 and lo > Market.BASE_PRICE * 0.55 and hi < Market.BASE_PRICE * 1.5)
+	var kinds := {}
+	var same := true
+	for d in range(1, 200):
+		kinds[Market.event(d)] = true
+		same = same and Market.event(d) == Market.event(d) and Market.price(d) == Market.price(d)
+	var calm := true
+	for d in range(1, 8):
+		calm = calm and Market.event(d) == ""
+	_check("price events are fixed by day, bounded, and both kinds happen", same and calm and kinds.has("spike") and kinds.has("slump")
+		and Market.price(150) > Market.BASE_PRICE * 0.55 and Market.event_shift(150) <= Market.SPIKE)
 	print("  gold price over 40 days: $%.2f to $%.2f a gram" % [lo, hi])
 	base.journal.interact(player)
 	_check("Grandpa's journal marks the old mine", map_view.marks.size() == 1
