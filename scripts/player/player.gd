@@ -378,7 +378,8 @@ func _try_chip() -> void:
 		var ct := Garnets.carats(_garnet_rng)
 		inv.garnets.append(ct)
 		hud.toast("A garnet came out of the rock: %.2f carats. The assay office buys them." % ct, Color(0.95, 0.4, 0.45), 4.0)
-	mine.hazards.on_chip(_aim["position"])
+	if mine.hazards != null:
+		mine.hazards.on_chip(_aim["position"])
 	refresh_hud()
 
 
