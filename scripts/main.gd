@@ -1238,14 +1238,14 @@ func _apply_view() -> void:
 				from = town.to_global(Vector3(6.0, 0.0, 17.0))
 				at = town.to_global(Vector3(-2.0, 2.0, -3.0))
 			"store":
-				from = town.to_global(Vector3(-7.4, 0.0, 0.2))
-				at = town.to_global(Vector3(-7.9, 1.5, -3.0))
+				from = town.to_global(Vector3(-11.1, 0.1, -6.4))
+				at = town.to_global(Vector3(-11.4, 1.5, -8.9))
 			"claims":
-				from = town.to_global(Vector3(10.2, 0.0, 0.2))
-				at = town.to_global(Vector3(10.6, 1.5, -3.0))
+				from = town.to_global(Vector3(9.9, 0.1, -5.9))
+				at = town.to_global(Vector3(9.6, 1.5, -8.4))
 			"assay":
-				from = town.to_global(Vector3(1.0, 0.0, 0.6))
-				at = town.to_global(Vector3(1.4, 1.1, -2.4))
+				from = town.to_global(Vector3(0.9, 0.1, -4.3))
+				at = town.to_global(Vector3(0.6, 1.0, -5.9))
 			"dredge":
 				var d = machine_of("dredge")
 				if d == null:
@@ -1471,6 +1471,9 @@ func _selftest() -> void:
 	_check("the assay office pays for the bar", inv.money > money_before)
 	_check("the town stands on level ground by the road", absf(town.street.y - terrain.height_at(town.street.x, town.street.z)) < 0.4
 		and world.road_weight(town.to_global(Vector3(0, 0, 28)).x, town.to_global(Vector3(0, 0, 28)).z) > 0.5)
+	_check("the town buildings have open doors and the stations inside", town.doors.size() == 3
+		and town.doors.all(func(d): return d.is_open)
+		and [town.store, town.assay, town.claims_office].all(func(st): return st.position.z < town.FRONT_Z - 1.0))
 	var p1 := Market.price(1)
 	var lo := p1
 	var hi := p1
