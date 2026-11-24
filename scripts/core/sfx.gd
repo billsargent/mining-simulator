@@ -222,6 +222,8 @@ func _synth_all() -> void:
 	_built["clink"] = _wav(_bell([1800.0, 2730.0, 4100.0], 0.35, 0.25))
 	_built["sell"] = _wav(_concat([_bell([1320.0, 2640.0], 0.25, 0.5), _bell([1760.0, 3520.0], 0.6, 0.5)]))
 	_built["goal"] = _wav(_concat([_pluck(r, 392.0, 0.18), _pluck(r, 587.3, 0.7)]))
+	# Nugget: a rising, ringing three-note chime over a soft shimmer.
+	_built["nugget"] = _wav(_concat([_bell([1568.0, 3136.0, 4700.0], 0.14, 0.35), _bell([1976.0, 3952.0], 0.14, 0.35), _bell([2637.0, 5274.0, 7900.0], 1.1, 0.45)]))
 	_built["thud"] = _wav(_thud(r))
 	_built["creak"] = _wav(_creak(r))
 	_built["roar"] = _wav(_roar(r))
