@@ -57,6 +57,8 @@ var chest_garnets := PackedFloat32Array()
 var chest_bars: Array = []
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
+var pan_notes: Array = []               # recent prospecting notes, newest last (PAN_NOTES_MAX)
+const PAN_NOTES_MAX := 8
 # Records for the pause menu's Records page.
 var biggest_nugget := 0.0               # grams
 var gold_found := 0.0                   # grams, all time
@@ -73,6 +75,12 @@ var _garnets_seen := 0                  # garnets carried when last looked, to c
 
 func log_sample(x: float, z: float, grams: float) -> void:
 	samples.append(Vector3(x, z, grams))
+
+
+func add_pan_note(text: String) -> void:
+	pan_notes.append(text)
+	while pan_notes.size() > PAN_NOTES_MAX:
+		pan_notes.remove_at(0)
 
 
 func add_gold(pieces: PackedFloat32Array) -> void:
@@ -239,7 +247,7 @@ func to_dict() -> Dictionary:
 	return {
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
-		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
+		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples, "pan_notes": pan_notes,
 		"crusher_powered": crusher_powered, "specimens": specimens, "garnets": garnets, "finds": finds, "gear": gear, "claims": claims,
 		"records": {"biggest_nugget": biggest_nugget, "gold_found": gold_found, "earned": earned, "best_day": best_day,
 			"best_day_no": best_day_no, "today_no": _today_no, "today": _today, "garnets_found": garnets_found,
@@ -262,6 +270,7 @@ func from_dict(d: Dictionary) -> void:
 	tool_tier = d.get("tool_tier", 0)
 	goals_done = d.get("goals", {})
 	samples = d.get("samples", PackedVector3Array())
+	pan_notes = d.get("pan_notes", [])
 	crusher_powered = d.get("crusher_powered", false)
 	specimens = d.get("specimens", PackedFloat32Array())
 	garnets = d.get("garnets", PackedFloat32Array())
