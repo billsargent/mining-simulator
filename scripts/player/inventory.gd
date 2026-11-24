@@ -75,6 +75,13 @@ func log_sample(x: float, z: float, grams: float) -> void:
 	samples.append(Vector3(x, z, grams))
 
 
+## A whole nugget, kept apart from the dust (packed arrays only change from here).
+func add_nugget(m: float) -> void:
+	nuggets.append(m)
+	gold_found += m
+	biggest_nugget = maxf(biggest_nugget, m)
+
+
 func add_gold(pieces: PackedFloat32Array) -> void:
 	for m in pieces:
 		gold_found += m

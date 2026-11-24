@@ -17,6 +17,8 @@ var nugget := 0.0
 var garnet := 0.0
 var mark_where := ""             # passed to mark_place on the "game" group
 var mark_label := ""
+var needs := ""                  # a find that must come first (a trail clue means nothing before)
+var locked_hint := "Something old here, but it means nothing to you yet."
 
 
 ## A plain collider of `size` at `pos`, so the player can aim at it.
@@ -27,6 +29,8 @@ func shape(size: Vector3, pos: Vector3) -> void:
 func prompt(player) -> String:
 	if player.hud.note_open():
 		return "[b]%s[/b]\n%s Put it down" % [title, Hud.key("E")]
+	if needs != "" and not player.inv.finds.has(needs) and not player.inv.finds.has(id):
+		return locked_hint
 	if player.inv.finds.has(id):
 		return "Searched: nothing more here." if text == "" else "%s Read the note again" % Hud.key("E")
 	return "%s Search %s" % [Hud.key("E"), what]
@@ -36,6 +40,8 @@ func interact(player) -> void:
 	var inv = player.inv
 	if player.hud.note_open():
 		player.hud.hide_note()
+		return
+	if needs != "" and not inv.finds.has(needs) and not inv.finds.has(id):
 		return
 	if inv.finds.has(id):
 		if text != "":
@@ -51,7 +57,7 @@ func interact(player) -> void:
 		inv.add_gold(PackedFloat32Array([grams]))
 		got.append("%.2f g of gold dust" % grams)
 	if nugget > 0.0:
-		inv.nuggets.append(nugget)
+		inv.add_nugget(nugget)
 		got.append("a %.1f g nugget" % nugget)
 	if garnet > 0.0:
 		if "garnets" in inv:

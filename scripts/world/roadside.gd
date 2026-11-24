@@ -12,6 +12,7 @@ var world
 var terrain
 var stashes: Array = []         # the caches hidden away from roads
 var caches: Array = []          # every cache, roadside ones first (for tests)
+var trail: Array = []           # the lost mine trail, in order (first note to the mine)
 
 var _logs: StandardMaterial3D
 var _rust: StandardMaterial3D
@@ -92,6 +93,7 @@ func build(world_ref, terrain_ref) -> void:
 					c.mark_label = nt[0]
 		caches.append(c)
 	caches.append_array(stashes)
+	_lost_mine_trail()
 
 
 func _anchor(pl: Dictionary) -> Node3D:
@@ -374,3 +376,160 @@ func _stash(p: Vector2, rng: RandomNumberGenerator, k: int) -> void:
 	_put_cache(root, c, Vector3.ZERO, Vector3(0.9, 0.7, 0.9), "under the cairn")
 	stashes.append(c)
 	_fade(root, 200.0)
+
+
+# --- The lost mine trail ----------------------------------------------------------------------
+
+## One chain of clues left by an old prospector, Silas Crane: a note at a roadside place, then a
+## cairn, a blazed pine, his claim post, and last the fallen-in mouth of his mine with his gold.
+## Each clue marks the next spot on the map, a little off (he wrote it from memory). A clue means
+## nothing until the one before it is found. Fixed by the seed; progress is the ids in inv.finds.
+const TRAIL := [
+	["Oilskin packet, nailed up", "To whoever finds this,\n\nI am Silas Crane. I struck it rich in these hills in '99, then lost the way back after the fever took me. My eyes are going, so I have set the way down as best I recall it.\n\nFirst: a pile of stones I raised on open ground, a good walk from here. Start there.\n\n- S. Crane", "the tin box nailed to the stake"],
+	["Note under the stones", "From the stones, go on till you find a big pine I marked with an axe, chest high. Further than you'd like.\n\n- S.C.", "under the cairn"],
+	["Cut into the blaze", "Letters cut into the wood under the old blaze:\n\nCLAIM POST - ON - S.C.\n\nAn arrow, and below it the rough sketch of a hill.", "the blaze on the old pine"],
+	["Tin nailed to the claim post", "NOTICE. I, Silas Crane, claim fifteen hundred feet along this lead.\n\nOn the back, in shaky pencil: \"The adit is in the hill past here. I timbered the mouth and left my poke inside. Whoever reads this, it's yours. I am not going back.\"", "the claim post"],
+	["", "", "the rotted strongbox"],
+]
+
+
+func _lost_mine_trail() -> void:
+	var home: Vector2 = world.sites["base"]["pos"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(home.x * 31.0 + home.y * 17.0) + 9090
+	# It starts at the old place nearest the cabin (but not right next door).
+	var start = null
+	var best := INF
+	for pl in world.places:
+		var d := (pl["pos"] as Vector2).distance_to(home)
+		if pl["kind"] != "sign" and d > 300.0 and d < best:
+			best = d
+			start = pl
+	if start == null:
+		return
+	var spots: Array = [start["pos"] as Vector2]
+	for i in TRAIL.size() - 1:
+		var q := _trail_spot(spots[spots.size() - 1], rng, spots)
+		if q == Vector2.ZERO:
+			return
+		spots.append(q)
+	for i in TRAIL.size():
+		var root: Node3D
+		if i == 0:
+			root = _anchor(start)
+		else:
+			root = Node3D.new()
+			add_child(root)
+			var p: Vector2 = spots[i]
+			root.position = Vector3(p.x, terrain.height_at(p.x, p.y), p.y)
+			root.rotation.y = rng.randf_range(0.0, TAU)
+		var c := Cache.new()
+		c.id = "trail_%d" % i
+		c.title = TRAIL[i][0]
+		c.text = TRAIL[i][1]
+		if i > 0:
+			c.needs = "trail_%d" % (i - 1)
+			c.locked_hint = "Someone made this long ago. It means nothing to you yet."
+		if i < TRAIL.size() - 1:
+			# A vague mark: within 15 to 35 m of the real spot.
+			var m: Vector2 = spots[i + 1] + Vector2.from_angle(rng.randf_range(0.0, TAU)) * rng.randf_range(15.0, 35.0)
+			c.mark_where = "pos:%f,%f" % [m.x, m.y]
+			c.mark_label = "Crane's lost mine?" if i == TRAIL.size() - 2 else "Crane's trail %d?" % (i + 1)
+		match i:
+			0: _trail_box(root, c)
+			1: _trail_cairn(root, c)
+			2: _trail_tree(root, c)
+			3: _trail_post(root, c)
+			_:
+				c.grams = snappedf(rng.randf_range(18.0, 26.0), 0.1)
+				c.nugget = snappedf(rng.randf_range(12.0, 20.0), 0.1)
+				c.money = rng.randi_range(150, 300)
+				c.locked_hint = "An old timbered hole in the hill, fallen in."
+				_trail_adit(root, c)
+		trail.append(c)
+
+
+## Open, fairly level ground 1.1 to 1.7 km on from `from`: away from water, roads, pads, the
+## sites and the trail's other spots.
+func _trail_spot(from: Vector2, rng: RandomNumberGenerator, taken: Array) -> Vector2:
+	for attempt in 80:
+		var q := from + Vector2.from_angle(rng.randf_range(0.0, TAU)) * rng.randf_range(1100.0, 1700.0)
+		if q.x < 200.0 or q.y < 200.0 or q.x > world.SIZE - 200.0 or q.y > world.SIZE - 200.0:
+			continue
+		if world.river_info(q.x, q.y).x < 25.0 or world.road_weight(q.x, q.y) > 0.01 or world.in_pad(q.x, q.y, 20.0):
+			continue
+		var ok := true
+		for s in ["base", "town", "camp", "mine"]:
+			if world.sites.has(s) and (world.sites[s]["pos"] as Vector2).distance_to(q) < 300.0:
+				ok = false
+		for t: Vector2 in taken:
+			if t.distance_to(q) < 800.0:
+				ok = false
+		if not ok:
+			continue
+		var h: float = world.surface(q.x, q.y, false)
+		for d: Vector2 in [Vector2(4, 0), Vector2(-4, 0), Vector2(0, 4), Vector2(0, -4)]:
+			if absf(world.surface(q.x + d.x, q.y + d.y, false) - h) > 2.5:
+				ok = false
+		if ok:
+			return q
+	return Vector2.ZERO
+
+
+func _trail_box(root: Node3D, c) -> void:
+	# A stake by the road with a tin box nailed to it.
+	Parts.box(root, Vector3(0.1, 1.2, 0.1), Vector3(-3.2, 0.6, 3.4), _logs)
+	Parts.box(root, Vector3(0.22, 0.16, 0.1), Vector3(-3.2, 1.0, 3.48), _rust)
+	_put_cache(root, c, Vector3(-3.2, 0, 3.4), Vector3(0.4, 1.2, 0.4), TRAIL[0][2])
+	_fade(root)
+
+
+func _trail_cairn(root: Node3D, c) -> void:
+	for i in 9:
+		var a := i * 2.3
+		var y := 0.14 + 0.24 * floorf(i / 4.0)
+		var rr := 0.0 if i == 8 else (0.36 if i < 4 else 0.2)
+		Parts.box(root, Vector3(0.42, 0.26, 0.36), Vector3(cos(a) * rr, y, sin(a) * rr), _stone, Vector3(0.1 * i, a, 0.05 * i))
+	_put_cache(root, c, Vector3.ZERO, Vector3(1.0, 0.9, 1.0), TRAIL[1][2])
+	_fade(root, 250.0)
+
+
+func _trail_tree(root: Node3D, c) -> void:
+	# A big dead pine with an axe blaze.
+	var bark := Parts.wood("old_logs", Color(0.3, 0.24, 0.19))
+	Parts.cyl(root, 0.45, 14.0, Vector3(0, 7.0, 0), bark, Vector3.ZERO, 0.18, 10)
+	Parts.box(root, Vector3(0.36, 0.6, 0.1), Vector3(0, 1.4, 0.42), Parts.wood("blaze", Color(0.72, 0.6, 0.42)))
+	var b := _body(root)
+	Parts.collider(b, Vector3(0.8, 14.0, 0.8), Vector3(0, 7.0, 0))
+	_put_cache(root, c, Vector3(0, 1.0, 0.45), Vector3(0.5, 0.9, 0.2), TRAIL[2][2])
+	_fade(root, 500.0)
+
+
+func _trail_post(root: Node3D, c) -> void:
+	Parts.box(root, Vector3(0.16, 1.4, 0.16), Vector3(0, 0.7, 0), _logs)
+	Parts.box(root, Vector3(0.22, 0.28, 0.02), Vector3(0, 1.05, 0.09), _rust)
+	var l := Parts.label(root, "S.C.\n1899", Vector3(0, 1.05, 0.11), 14)
+	l.modulate = Color(0.2, 0.15, 0.1)
+	l.outline_size = 0
+	_put_cache(root, c, Vector3.ZERO, Vector3(0.4, 1.4, 0.4), TRAIL[3][2])
+	_fade(root, 250.0)
+
+
+func _trail_adit(root: Node3D, c) -> void:
+	# The fallen-in mouth of a small mine: two timber legs and a cap against a heap of rock.
+	for s: float in [-1.0, 1.0]:
+		Parts.box(root, Vector3(0.22, 1.9, 0.22), Vector3(s * 0.8, 0.95, 0), _logs, Vector3(0, 0, s * 0.06))
+	Parts.box(root, Vector3(2.1, 0.24, 0.26), Vector3(0, 1.95, 0), _logs, Vector3(0, 0, 0.08))
+	var heap := MeshInstance3D.new()
+	var sp := SphereMesh.new()
+	sp.radius = 2.2
+	sp.height = 2.6
+	heap.mesh = sp
+	heap.material_override = _stone
+	heap.position = Vector3(0, 0.2, -1.6)
+	root.add_child(heap)
+	var b := _body(root)
+	Parts.collider(b, Vector3(3.6, 2.2, 2.6), Vector3(0, 1.1, -1.7))
+	Parts.box(root, Vector3(0.6, 0.35, 0.4), Vector3(0.2, 0.18, 0.3), Parts.wood("trunk", Color(0.3, 0.2, 0.13)), Vector3(0, 0.3, 0))
+	_put_cache(root, c, Vector3(0.2, 0, 0.3), Vector3(0.7, 0.5, 0.5), TRAIL[4][2])
+	_fade(root, 300.0)

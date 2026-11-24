@@ -1970,6 +1970,29 @@ func _selftest() -> void:
 	var st = roadside.stashes[0]
 	st.interact(player)
 	_check("a hidden stash pays well", inv.finds.has(st.id))
+	# The lost mine trail: each clue only after the one before, each marks the next, gold at the end.
+	var tr: Array = roadside.trail
+	var tr_len := 0.0
+	for k in range(1, tr.size()):
+		tr_len += tr[k].global_position.distance_to(tr[k - 1].global_position)
+	print("  lost mine trail: %d steps, %.1f km" % [tr.size(), tr_len / 1000.0])
+	_check("the lost mine trail runs across the map", tr.size() == 5 and tr_len > 3500.0)
+	if tr.size() == 5:
+		tr[2].interact(player)
+		_check("a trail clue means nothing out of order", not inv.finds.has(tr[2].id))
+		var tr_marks: int = map_view.marks.size()
+		var tr_nuggets: int = inv.nuggets.size()
+		var mark_ok := true
+		for k in tr.size():
+			tr[k].interact(player)
+			if player.hud.note_open():
+				player.hud.hide_note()
+			if k < tr.size() - 1:
+				var xy: PackedStringArray = tr[k].mark_where.substr(4).split(",")
+				var d := Vector2(float(xy[0]), float(xy[1])).distance_to(Vector2(tr[k + 1].global_position.x, tr[k + 1].global_position.z))
+				mark_ok = mark_ok and d > 5.0 and d < 60.0
+		_check("each trail clue marks the next spot, roughly", mark_ok and map_view.marks.size() == tr_marks + 4)
+		_check("the lost mine pays out", tr.all(func(c): return inv.finds.has(c.id)) and inv.nuggets.size() > tr_nuggets)
 	_check("keys reset", Settings.key_for("interact") == KEY_E and Settings.key_for("carry") == KEY_F and Hud.key("E").contains("E"))
 
 	# Garnets: buy a sieve, stand on Garnet Beach, scoop, shake, flip; sell them in town.
