@@ -365,11 +365,14 @@ static func pad_words(text: String) -> String:
 		text = text.replace(w, pad_name("dig"))
 	for w in ["right mouse", "Right mouse"]:
 		text = text.replace(w, pad_name("pan_wash"))
+	for n in range(1, 9):
+		text = text.replace("(%d)" % n, "(LB/RB)")      # hotbar slots
 	for a in ACTIONS:
 		var k := key_name(a[2])
+		text = text.replace("(%s)" % k, "(%s)" % pad_name(a[0]))
 		if k.length() == 1:
-			text = text.replace("(%s)" % k, "(%s)" % pad_name(a[0])).replace("%s or walk away" % k, "%s or walk away" % pad_name(a[0]))
-	return text
+			text = text.replace("%s or walk away" % k, "%s or walk away" % pad_name(a[0]))
+	return text.replace("(left click)", "(A)")      # the map drops a waypoint with A
 
 
 # --- Graphics -----------------------------------------------------------------------------------
