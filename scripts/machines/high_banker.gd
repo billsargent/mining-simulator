@@ -88,6 +88,23 @@ func _build() -> void:
 	for i in 6:
 		Parts.cyl(self, 0.008, 0.62, Vector3(HOPPER_X, HOPPER_Y + 0.31, -0.2 + i * 0.08), frame, Vector3(0, 0, PI / 2.0), -1.0, 6)
 	Parts.cyl(self, 0.015, 0.5, Vector3(HOPPER_X - 0.25, HOPPER_Y + 0.36, 0.0), Parts.paint("pvc", Color(0.9, 0.9, 0.88)), Vector3(PI / 2.0, 0, 0), -1.0, 8)
+	# Grizzly frame, foot plates, cross braces, and the spray bar's nozzles and feed pipe.
+	for s: float in [-1.0, 1.0]:
+		Parts.box(self, Vector3(0.64, 0.03, 0.03), Vector3(HOPPER_X, HOPPER_Y + 0.31, s * 0.25), frame)
+		Parts.box(self, Vector3(0.22, 0.12, 0.008), Vector3(HOPPER_X + 0.38, HOPPER_Y + 0.06, s * 0.2), alu, Vector3(0, -s * 0.5, 0))
+	for x: float in [HOPPER_X, 1.0]:
+		Parts.box(self, Vector3(0.04, 0.04, 0.52), Vector3(x, 0.12, 0.0), frame)
+		for z: float in [-0.24, 0.24]:
+			Parts.box(self, Vector3(0.12, 0.01, 0.12), Vector3(x, 0.005, z), frame)
+	for z: float in [-0.24, 0.24]:
+		var a := Vector3(HOPPER_X, 0.12, z)
+		var b := Vector3(1.0, 0.45, z)
+		Parts.box(self, Vector3(a.distance_to(b), 0.03, 0.02), (a + b) * 0.5, frame, Vector3(0, 0, atan2(b.y - a.y, b.x - a.x)))
+	var pvc := Parts.paint("pvc", Color(0.9, 0.9, 0.88))
+	for i in 5:
+		Parts.cyl(self, 0.006, 0.04, Vector3(HOPPER_X - 0.23, HOPPER_Y + 0.34, -0.2 + i * 0.1), pvc, Vector3(0, 0, -0.9), -1.0, 6)
+	Parts.cyl(self, 0.02, 0.06, Vector3(HOPPER_X - 0.25, HOPPER_Y + 0.36, 0.26), pvc, Vector3(PI / 2.0, 0, 0), -1.0, 8)
+	Parts.cyl(self, 0.017, 0.04, Vector3(HOPPER_X - 0.25, HOPPER_Y + 0.36, 0.0), Parts.paint("valve", Color(0.75, 0.15, 0.1)), Vector3.ZERO, -1.0, 8)
 	# The sluice section tilts with the angle knob.
 	_tilt = Node3D.new()
 	_tilt.position = Vector3(HOPPER_X + 0.3, HOPPER_Y - 0.02, 0.0)

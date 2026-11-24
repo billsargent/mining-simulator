@@ -1098,6 +1098,13 @@ func _apply_view() -> void:
 				var q := world.river_point("Cabin Creek", 0.66, 0.0)
 				from = Vector3(p.x, 0.0, p.y)
 				at = Vector3(q.x, terrain.height_at(q.x, q.y), q.y)
+			"gear":
+				# With --demo: the sluice, pump and high banker up close.
+				var hb: Vector3 = machine_of("high_banker").global_position
+				var pu: Vector3 = machine_of("pump").global_position
+				var side := Vector3(pu.z - hb.z, 0.0, hb.x - pu.x).normalized()
+				from = hb + (pu - hb).normalized() * 1.2 + side * 2.6
+				at = hb + Vector3(0.0, 0.5, 0.0)
 			"valley":
 				var p := world.river_point("Big Sable River", 0.36, 14.0)
 				var q := world.river_point("Big Sable River", 0.44, 0.0)
