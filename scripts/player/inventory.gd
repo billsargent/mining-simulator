@@ -85,6 +85,13 @@ func add_pan_note(text: String) -> void:
 		pan_notes.remove_at(0)
 
 
+## A whole nugget, kept apart from the dust (packed arrays only change from here).
+func add_nugget(m: float) -> void:
+	nuggets.append(m)
+	gold_found += m
+	biggest_nugget = maxf(biggest_nugget, m)
+
+
 func add_gold(pieces: PackedFloat32Array) -> void:
 	for m in pieces:
 		gold_found += m
