@@ -237,6 +237,7 @@ func _synth_all() -> void:
 	_built["engine"] = _wav(_engine(r, 45.0, 0.5), true)
 	_built["motor"] = _wav(_engine(r, 30.0, 0.9), true)
 	_built["water"] = _wav(_loop_noise(r, 3.0, 0.2, 0.25, 0.5), true)
+	_built["hawk"] = _wav(_hawk(r))
 	for k in 3:
 		_built["bird%d" % k] = _wav(_bird(r))
 	for k in 3:
@@ -499,6 +500,22 @@ func _bird(r: RandomNumberGenerator) -> PackedFloat32Array:
 			out.append(sin(ph) * sin(PI * t / dur) * 0.3)
 		for i in int(r.randf_range(0.03, 0.12) * RATE):
 			out.append(0.0)
+	return out
+
+
+## Red-tailed hawk: a hoarse scream that slides down, with a rasp of noise riding on it.
+func _hawk(r: RandomNumberGenerator) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var dur := 1.3
+	var n := int(dur * RATE)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var f := lerpf(3400.0, 1900.0, pow(t / dur, 0.7)) + sin(t * 180.0) * 120.0
+		ph += TAU * f / RATE
+		var env := minf(1.0, t / 0.08) * pow(1.0 - t / dur, 1.5)
+		var tone := sin(ph) + 0.4 * sin(ph * 2.0) + 0.2 * sin(ph * 3.0)
+		out.append((tone * (0.8 + r.randf_range(-0.35, 0.35))) * env * 0.22)
 	return out
 
 
