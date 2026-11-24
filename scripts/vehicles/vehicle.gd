@@ -31,6 +31,7 @@ var top_speed := 15.0
 var brake_force := 3200.0
 var max_steer := 0.55
 var com_y := 0.25
+var rim_color := Color(0.55, 0.55, 0.56)  # wheel rims (art only)
 var seat := Vector3.ZERO                  # where the driver sits (local)
 var head := Vector3.ZERO                  # first-person camera (local)
 var exit_offset := Vector3(-1.4, 0, 0)    # where you step out (local)
@@ -60,22 +61,10 @@ func setup(t) -> void:
 	angular_damp = 1.2
 	linear_damp = 0.05
 	continuous_cd = true
-	var wheel_mesh := CylinderMesh.new()
-	wheel_mesh.top_radius = wheel_radius
-	wheel_mesh.bottom_radius = wheel_radius
-	wheel_mesh.height = wheel_width
-	wheel_mesh.radial_segments = 18
-	var tire := Parts.mat("tire", Color(0.08, 0.08, 0.08), 0.9)
-	var hub := Parts.mat("hub", Color(0.55, 0.55, 0.56), 0.4, 0.7)
 	for i in wheel_mounts.size():
 		var holder := Node3D.new()
 		add_child(holder)
-		var mi := MeshInstance3D.new()
-		mi.mesh = wheel_mesh
-		mi.material_override = tire
-		mi.rotation = Vector3(0, 0, PI / 2.0)
-		holder.add_child(mi)
-		Parts.cyl(holder, wheel_radius * 0.45, wheel_width + 0.01, Vector3.ZERO, hub, Vector3(0, 0, PI / 2.0), -1.0, 10)
+		Parts.wheel(holder, wheel_radius, wheel_width, rim_color)
 		holder.position = wheel_mounts[i] - Vector3(0, rest * 0.5, 0)
 		_wheels.append({"node": holder, "comp": 0.0, "spin": 0.0, "steer": i < 2, "drive": true})
 	for s in cargo_slots:
