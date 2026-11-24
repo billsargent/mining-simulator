@@ -53,6 +53,9 @@ func _list(inv) -> String:
 func prompt(player) -> String:
 	var inv = player.inv
 	var t := "[b]Assay office[/b]   gold today: $%.2f a gram  (%s on yesterday)" % [Market.price(), Market.trend()]
+	if Market.news() != "":
+		t += "
+[color=#f0d080]%s[/color]" % Market.news()
 	if _empty(inv):
 		t += "\nBring bars from your furnace, or nuggets, specimens and garnets."
 	else:
