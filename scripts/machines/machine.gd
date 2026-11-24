@@ -325,9 +325,26 @@ func _build_bed(parent: Node3D, length: float, width: float) -> void:
 	_carpet_mat.albedo_color = CARPET
 	_carpet_mat.roughness = 1.0
 	Parts.box(parent, Vector3(length - 0.1, 0.006, width - 0.01), Vector3(length * 0.5 + 0.05, 0.007, 0.0), _carpet_mat)
+	# Rolled lips along the top of the walls, a flange at the outlet, ribs under the floor.
+	for s: float in [-1.0, 1.0]:
+		Parts.cyl(parent, 0.008, length, Vector3(length * 0.5, 0.13, s * width * 0.5), alu, Vector3(0, 0, PI / 2.0), -1.0, 6)
+		Parts.box(parent, Vector3(length, 0.006, 0.02), Vector3(length * 0.5, 0.127, s * (width * 0.5 - 0.01)), alu)
+	Parts.box(parent, Vector3(0.008, 0.02, width + 0.03), Vector3(length - 0.004, 0.005, 0.0), alu)
+	var rib := Parts.steel()
+	for i in int(length / 0.35):
+		Parts.box(parent, Vector3(0.03, 0.02, width + 0.02), Vector3(0.15 + i * 0.35, -0.014, 0.0), rib)
+	# Angle-iron riffles in a frame of side rails, with expanded metal over them.
 	var riffles := int(length / 0.1) - 2
 	for i in riffles:
 		Parts.box(parent, Vector3(0.012, 0.022, width - 0.01), Vector3(0.2 + i * 0.1, 0.02, 0.0), alu, Vector3(0, 0, -0.45))
+		Parts.box(parent, Vector3(0.022, 0.004, width - 0.01), Vector3(0.206 + i * 0.1, 0.03, 0.0), alu)
+	var rail_len := riffles * 0.1
+	for s: float in [-1.0, 1.0]:
+		Parts.box(parent, Vector3(rail_len, 0.03, 0.006), Vector3(0.15 + rail_len * 0.5, 0.018, s * (width * 0.5 - 0.012)), alu)
+	var mesh_mat := Parts.steel()
+	for k in 5:
+		var z := -width * 0.4 + k * width * 0.2
+		Parts.box(parent, Vector3(rail_len, 0.004, 0.004), Vector3(0.15 + rail_len * 0.5, 0.034, z), mesh_mat)
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(length, width - 0.01)
 	_flow = MeshInstance3D.new()

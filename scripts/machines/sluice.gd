@@ -41,8 +41,22 @@ func _build() -> void:
 	_tilt.position = Vector3(-LENGTH * 0.5, 0.02, 0.0)
 	add_child(_tilt)
 	_build_bed(_tilt, LENGTH, WIDTH)
-	# Flared head that funnels water in.
+	# Flared head that funnels water in: a sloped floor apron and two angled wings.
 	var alu := Parts.aluminum()
+	Parts.box(_tilt, Vector3(0.3, 0.008, WIDTH + 0.16), Vector3(-0.15, 0.004, 0.0), alu, Vector3(0, 0, 0.05))
 	for s: float in [-1.0, 1.0]:
-		Parts.box(_tilt, Vector3(0.26, 0.13, 0.008), Vector3(-0.11, 0.065, s * (WIDTH * 0.5 + 0.05)), alu, Vector3(0, s * 0.4, 0))
+		Parts.box(_tilt, Vector3(0.32, 0.13, 0.008), Vector3(-0.15, 0.065, s * (WIDTH * 0.5 + 0.06)), alu, Vector3(0, s * 0.4, 0))
+		Parts.cyl(_tilt, 0.008, 0.32, Vector3(-0.15, 0.13, s * (WIDTH * 0.5 + 0.06)), alu, Vector3(0, s * 0.4, PI / 2.0), -1.0, 6)
+	# Adjustable legs: a crossbar and two screw feet at each end set the drop.
+	var steel := Parts.steel()
+	for x: float in [0.08, LENGTH - 0.12]:
+		Parts.box(_tilt, Vector3(0.025, 0.025, WIDTH + 0.08), Vector3(x, -0.03, 0.0), steel)
+		for s: float in [-1.0, 1.0]:
+			var z := s * (WIDTH * 0.5 + 0.03)
+			Parts.cyl(_tilt, 0.008, 0.1, Vector3(x, -0.08, z), steel, Vector3.ZERO, -1.0, 6)
+			Parts.cyl(_tilt, 0.025, 0.012, Vector3(x, -0.13, z), steel, Vector3.ZERO, -1.0, 8)
+	# Handles to carry it by.
+	for x: float in [0.25, LENGTH - 0.25]:
+		for s: float in [-1.0, 1.0]:
+			Parts.box(_tilt, Vector3(0.1, 0.012, 0.03), Vector3(x, 0.115, s * (WIDTH * 0.5 + 0.018)), Parts.hose())
 	Parts.collider(self, Vector3(LENGTH + 0.1, 0.2, 0.42), Vector3(0.0, 0.08, 0.0))
