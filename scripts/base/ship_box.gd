@@ -73,10 +73,12 @@ func interact(player) -> void:
 	var total := _total(inv)
 	var msg := "Sold " + _list(inv)
 	inv.money += total
+	inv.record_sale(total, Market.day)
 	Sfx.play("sell", null, -4.0)
 	inv.bars.clear()
 	inv.nuggets = PackedFloat32Array()
 	inv.specimens = PackedFloat32Array()
 	inv.garnets = PackedFloat32Array()
+	inv.watch_garnets()
 	inv.complete_goal("sold")
 	player.hud.toast("%s:  +$%d" % [msg, total], Color(0.6, 1.0, 0.6), 5.0)

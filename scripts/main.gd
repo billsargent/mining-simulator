@@ -229,6 +229,7 @@ func _process(delta: float) -> void:
 			v.set_dark(dark)
 		if dark and not player.headlamp_on():
 			hud.toast("It's getting dark. L turns on your headlamp.", Color(1.0, 0.9, 0.6), 5.0)
+	_track_records(f)
 	_compass_t -= delta
 	if _compass_t <= 0.0:
 		_compass_t = 0.05
@@ -238,6 +239,23 @@ func _process(delta: float) -> void:
 		if Vector2(f.x, f.z).distance_to(camp) < 60.0:
 			player.inv.complete_goal("last_chance")
 			hud.toast("Last Chance Camp. Someone worked this creek hard, a long time ago.", Color(1.0, 0.9, 0.6), 6.0)
+
+
+var _last_pos = null
+
+
+## Distance walked and driven, and garnets found, for the Records page. Jumps (teleports,
+## fast travel, the mine) are not counted.
+func _track_records(f: Vector3) -> void:
+	player.inv.watch_garnets()
+	if _last_pos != null:
+		var d: float = Vector2(f.x - _last_pos.x, f.z - _last_pos.z).length()
+		if d < 10.0:
+			if player.driving != null:
+				player.inv.driven += d
+			else:
+				player.inv.walked += d
+	_last_pos = f
 
 
 ## Where the world streams around: the player, or the vehicle they drive.
@@ -931,10 +949,12 @@ func _run_harness() -> void:
 			var cp: Vector3 = base.crusher.global_position
 			var from: Vector3 = cp + base.global_basis.z * 2.4 + base.global_basis.x * 0.8
 			_place_player(from, atan2(from.x - cp.x, from.z - cp.z), -0.3)
-		if _opts.has("menu") or _opts.has("settings"):
+		if _opts.has("menu") or _opts.has("settings") or _opts.has("records"):
 			menu.open()
 			if _opts.has("settings"):
 				menu._open_settings()
+			if _opts.has("records"):
+				menu._open_records()
 		for i in 30:
 			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -2022,6 +2042,7 @@ func _selftest() -> void:
 	Settings.quality = 2
 	Settings.apply_graphics(get_tree())
 	_check("high quality has shadows", day_night.sun.shadow_enabled)
+	_check_records()
 	print("SELFTEST complete: %d failed" % _failures)
 
 
@@ -2108,3 +2129,34 @@ func _savetest(mode: String) -> void:
 			get_tree().get_nodes_in_group("machines").size(), on_truck, machine_of("high_banker") != null,
 			terrain.dug_at(spot.x, spot.y), truck.global_position.snapped(Vector3.ONE * 0.01)])
 		SaveGame.delete()
+
+
+func _check_records() -> void:
+	var inv = player.inv
+	var g0: float = inv.gold_found
+	inv.add_gold(PackedFloat32Array([0.1, 7.5]))
+	_check("records: gold found and biggest nugget", is_equal_approx(inv.gold_found, g0 + 7.6) and inv.biggest_nugget >= 7.5)
+	var e0: int = inv.earned
+	inv.record_sale(100, 50)
+	inv.record_sale(50, 50)
+	inv.record_sale(20, 51)
+	_check("records: earnings and best day", inv.earned == e0 + 170 and inv.best_day >= 150 and inv.best_day_no != 51)
+	var n0: int = inv.garnets_found
+	inv.garnets.append(1.0)
+	inv.watch_garnets()
+	inv.watch_garnets()
+	_check("records: garnets counted once", inv.garnets_found == n0 + 1)
+	var d: Dictionary = inv.to_dict()
+	var Inv = load("res://scripts/player/inventory.gd")
+	var copy = Inv.new()
+	copy.from_dict(d)
+	_check("records: saved and loaded", copy.earned == inv.earned and copy.best_day == inv.best_day and copy.garnets_found == inv.garnets_found
+		and is_equal_approx(copy.gold_found, inv.gold_found))
+	d.erase("records")
+	var old = Inv.new()
+	old.from_dict(d)
+	_check("records: old save loads with zeros", old.earned == 0 and old.gold_found == 0.0 and old.walked == 0.0)
+	menu.open()
+	menu._open_records()
+	_check("records page opens", menu._rec_panel.visible and menu._rec_grid.get_child_count() >= 18)
+	menu._resume()
