@@ -11,11 +11,15 @@ const MAX_GRAMS_PER_SHOVEL := 0.28
 const PAYSTREAK := 0.25          # metres above bedrock where the rich layer sits
 const MEAN_PIECE := 0.017        # average mass of one piece of gold (grams)
 const BOULDER_CELL := 16.0
+const LEDGE_CREEK := "Granite Creek"   # Dutch's Ledge, the endgame claim (claims.gd)
+const LEDGE_REACH := 90.0              # metres around the ledge where the gravel runs richer
+const LEDGE_BOOST := 1.6               # extra richness at the ledge itself, fading to the edge
 
 var world: WorldGen
 var _boulders := {}              # Vector2i cell -> Array[Vector4]
 var _patch := FastNoiseLite.new()
 var _rng := RandomNumberGenerator.new()
+var ledge := Vector2.INF         # where Dutch's Ledge sheds its gold into the creek
 
 
 func _init(w: WorldGen, world_seed: int) -> void:
@@ -29,6 +33,8 @@ func _init(w: WorldGen, world_seed: int) -> void:
 		if not _boulders.has(c):
 			_boulders[c] = []
 		(_boulders[c] as Array).append(b)
+	if not w.river_by_name(LEDGE_CREEK).is_empty():
+		ledge = rich_spot(LEDGE_CREEK)
 
 
 ## How good a spot is (about 0..2.4), ignoring depth.
@@ -51,6 +57,10 @@ func richness(x: float, z: float) -> float:
 	r = maxf(r, 0.8 * world.bench_weight(x, z))
 	r += _boulder_bonus(x, z) * river_rich
 	var patch := 0.35 + 1.3 * clampf(_patch.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
+	if ledge != Vector2.INF:
+		var d := ledge.distance_to(Vector2(x, z))
+		if d < LEDGE_REACH:
+			r *= 1.0 + LEDGE_BOOST * (1.0 - d / LEDGE_REACH)
 	return clampf(r * patch, 0.0, 2.4)
 
 

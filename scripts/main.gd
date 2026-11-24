@@ -56,6 +56,7 @@ const Sfx = preload("res://scripts/core/sfx.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const Town = preload("res://scripts/world/town.gd")
 const Claims = preload("res://scripts/core/claims.gd")
+const Inventory = preload("res://scripts/player/inventory.gd")
 const Market = preload("res://scripts/core/market.gd")
 const Recovery = preload("res://scripts/machines/recovery.gd")
 const UpdateCheck = preload("res://scripts/core/update_check.gd")
@@ -195,6 +196,7 @@ func _ready() -> void:
 	if not ((_saving or load_test) and _load_game()):
 		_start_fresh()
 	Claims.owned = player.inv.claims
+	Claims.finds = player.inv.finds
 	_apply_gear()
 	_build_near_player()
 	_loading.queue_free()
@@ -318,8 +320,10 @@ func goal_target():
 			return _ground3(world.sites["mine"]["pos"])
 		"crushed":
 			return base.crusher.global_position
-		"claim":
+		"claim", "ledge":
 			return town.claims_office.global_position
+		"ledge_gold":
+			return _ground3(Claims.by_id("ledge")["pos"])
 	return null
 
 
@@ -2067,6 +2071,7 @@ func _selftest() -> void:
 	_check("high quality has shadows", day_night.sun.shadow_enabled)
 	_check_records()
 	_check_pan_notes()
+	await _check_ledge()
 	print("SELFTEST complete: %d failed" % _failures)
 
 
@@ -2176,6 +2181,43 @@ func _check_pan_notes() -> void:
 	old.from_dict(d)
 	_check("pan notes: old save loads empty", old.pan_notes.is_empty())
 	print("  pan note: ", pn[0], " ", pn[1], " | ", far[1])
+
+
+## The endgame: Dutch's Ledge is hidden until a mine find tells of it, costs a fortune, and
+## its first gold ends the story.
+func _check_ledge() -> void:
+	var inv = player.inv
+	var ledge := Claims.by_id("ledge")
+	_check("Dutch's Ledge is on the books", not ledge.is_empty() and ledge["price"] == Claims.LEDGE_PRICE)
+	var saved_finds: Dictionary = inv.finds.duplicate()
+	inv.finds.erase("journal")
+	inv.finds.erase("note")
+	_check("the ledge stays hidden until a mine find tells of it", not Claims.known(ledge))
+	inv.finds["note"] = true
+	_check("the last note reveals it", Claims.known(ledge))
+	for g in Inventory.GOALS:
+		if g[0] != "ledge" and g[0] != "ledge_gold":
+			inv.goals_done[g[0]] = true
+	_check("the guide points at the claims office", inv.next_goal_id() == "ledge"
+		and (goal_target() as Vector3).distance_to(town.claims_office.global_position) < 1.0)
+	inv.money = Claims.LEDGE_PRICE - 1
+	town.claims_office.select("ledge")
+	town.claims_office.interact(player)
+	_check("the ledge can't be bought short of the price", not inv.claims.has("ledge"))
+	inv.money += 1
+	town.claims_office.interact(player)
+	_check("buying the ledge takes the money", inv.claims.has("ledge") and inv.money == 0 and inv.goals_done.has("ledge"))
+	var gt = goal_target()
+	_check("then the guide points at the ledge", inv.next_goal_id() == "ledge_gold"
+		and gt != null and Vector2(gt.x, gt.z).distance_to(ledge["pos"]) < 1.0)
+	var p: Vector2 = ledge["pos"]
+	_check("the ledge is the richest ground", deposits.richness(p.x, p.y) > deposits.richness(world.sites["camp"]["pos"].x, world.sites["camp"]["pos"].y))
+	player._found_ledge()
+	_check("its first gold ends the story", inv.goals_done.has("ledge_gold") and hud.note_open() and inv.next_goal_id() == "")
+	hud.hide_note()
+	for k in saved_finds:
+		inv.finds[k] = saved_finds[k]
+	await get_tree().process_frame
 
 
 func _check_records() -> void:

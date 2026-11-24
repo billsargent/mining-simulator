@@ -8,6 +8,10 @@ const WorldGen = preload("res://scripts/world/world_gen.gd")
 
 static var list: Array = []       # {id, name, river, pos: Vector2, radius, price}
 static var owned := {}            # id -> true; this is the inventory's own dictionary
+static var finds := {}            # the inventory's finds: a secret claim shows once its find is read
+
+const LEDGE_CLUES := ["journal", "note"]   # the mine finds that tell of Dutch's ledge
+const LEDGE_PRICE := 25000        # Dutch's Ledge, the endgame: about 10 hours of high banker work
 
 
 static func setup(world, deposits) -> void:
@@ -22,6 +26,9 @@ static func setup(world, deposits) -> void:
 	_add("last_chance", "Last Chance Discovery", "Last Chance Creek", camp, 85.0, 6000)
 	if not world.river_by_name("Coyote Wash").is_empty():
 		_add("coyote", "Coyote Wash Placer", "Coyote Wash", deposits.rich_spot("Coyote Wash"), 75.0, 4000)
+	if deposits.ledge != Vector2.INF:
+		_add("ledge", "Dutch's Ledge", deposits.LEDGE_CREEK, deposits.ledge, 60.0, LEDGE_PRICE)
+		list[-1]["secret"] = true
 
 
 static func _add(id: String, name: String, river: String, pos: Vector2, radius: float, price: int) -> void:
@@ -36,6 +43,11 @@ static func at(x: float, z: float) -> Dictionary:
 		if (c["pos"] as Vector2).distance_to(Vector2(x, z)) <= float(c["radius"]):
 			return c
 	return {}
+
+
+## False for a secret claim until the find that tells of it has been read (or it's yours).
+static func known(c: Dictionary) -> bool:
+	return not c.has("secret") or LEDGE_CLUES.any(func(k): return finds.has(k)) or is_owned(c["id"])
 
 
 static func is_owned(id: String) -> bool:

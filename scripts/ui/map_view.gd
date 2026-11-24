@@ -272,6 +272,8 @@ func draw_icons(c: Control) -> void:
 		if is_explored(mid.x, mid.y):
 			_text(c, font, mid * s + Vector2(6, -6), r["name"], 13, Color(0.12, 0.25, 0.4))
 	for cl in Claims.list:
+		if not Claims.known(cl):
+			continue
 		var mine_now: bool = Claims.is_owned(cl["id"])
 		var q: Vector2 = (cl["pos"] as Vector2) * s
 		var ring := Color(0.1, 0.5, 0.15) if mine_now else Color(0.45, 0.35, 0.2)
