@@ -1098,6 +1098,14 @@ func _apply_view() -> void:
 			"parking":
 				from = base.to_global(Vector3(2.0, 0.0, 16.0))
 				at = base.to_global(Vector3(1.0, 0.5, 3.5))
+			"atv", "truck", "atv_back", "truck_back":
+				# A vehicle up close, from the front quarter (or the back quarter).
+				for v in get_tree().get_nodes_in_group("vehicles"):
+					if v.kind == vname.trim_suffix("_back"):
+						var near := 3.2 if v.kind == "atv" else 6.5
+						var dir := Vector3(0.8, 0.0, 1.0 if vname.ends_with("_back") else -1.0).normalized()
+						from = v.to_global(dir * near)
+						at = v.to_global(Vector3(0, 0.6, 0))
 			"creek":
 				var p := world.river_point("Cabin Creek", 0.6, 2.6)
 				var q := world.river_point("Cabin Creek", 0.66, 0.0)
