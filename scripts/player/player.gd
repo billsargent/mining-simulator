@@ -132,11 +132,24 @@ func _unhandled_input(event: InputEvent) -> void:
 			grace()
 			get_viewport().set_input_as_handled()
 			return
-		if pan_view == null and carrying == null and _target != null and _target.has_method("scroll"):
-			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-				_target.scroll(self, 1)
-			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				_target.scroll(self, -1)
+		var wheel := mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN
+		if wheel and pan_view == null and carrying == null:
+			var up := mb.button_index == MOUSE_BUTTON_WHEEL_UP
+			if _target != null and _target.has_method("scroll"):
+				_target.scroll(self, 1 if up else -1)
+			else:
+				cycle_tool(-1 if up else 1)
+	elif event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo 			and (event as InputEventKey).physical_keycode >= KEY_1 and (event as InputEventKey).physical_keycode <= KEY_8:
+		var i: int = (event as InputEventKey).physical_keycode - KEY_1
+		var list := tools()
+		if i < list.size():
+			select_tool(list[i])
+	elif event.is_action_pressed("tool_next"):
+		cycle_tool(1)
+	elif event.is_action_pressed("tool_prev"):
+		cycle_tool(-1)
+	elif event.is_action_pressed("inventory"):
+		toggle_inventory()
 	elif event.is_action_pressed("headlamp"):
 		_lamp.visible = not _lamp.visible
 	elif event.is_action_pressed("scroll_up") or event.is_action_pressed("scroll_down"):
@@ -208,11 +221,15 @@ func _physics_process(delta: float) -> void:
 		if global_position.y < g - 0.5:
 			global_position.y = g + 0.05
 			velocity.y = 0.0
-	if captured and Input.is_action_pressed("dig") and _dig_cd <= 0.0:
+	if captured and _sieve_phase > 0 and Input.is_action_just_pressed("dig"):
+		_sieve_step()
+	elif captured and tool == "shovel" and Input.is_action_pressed("dig") and _dig_cd <= 0.0:
 		if mine != null:
 			_try_chip()
 		else:
 			_try_dig()
+	elif captured and Input.is_action_just_pressed("dig") and _dig_cd <= 0.0 and _interact_block <= 0.0:
+		_use_tool()
 	if Input.is_action_just_pressed("interact") and _interact_block <= 0.0:
 		if _target != null:
 			_target.interact(self)
@@ -279,7 +296,7 @@ func end_driving(spot: Vector3, yaw: float) -> void:
 	rotation = Vector3(0.0, yaw, 0.0)
 	camera.rotation = Vector3.ZERO
 	_col.disabled = false
-	_shovel.visible = true
+	_show_tool()
 	velocity = Vector3.ZERO
 	camera.make_current()
 	_interact_block = 0.3
@@ -423,7 +440,7 @@ func _update_carry() -> void:
 				var m = carrying
 				carrying = null
 				v.load_cargo(m)
-				_shovel.visible = true
+				_show_tool()
 				_dig_cd = 0.4
 				_interact_block = 0.2
 				inv.complete_goal("haul")
@@ -458,7 +475,7 @@ func _set_down() -> void:
 	var m = carrying
 	carrying = null
 	m.set_carried(false)
-	_shovel.visible = true
+	_show_tool()
 	_dig_cd = 0.4
 	_interact_block = 0.2
 	var problem: String = m.problem()
@@ -487,8 +504,8 @@ func on_cleaned_out(machine) -> void:
 
 # --- Panning -----------------------------------------------------------------------
 
-func _try_pan() -> void:
-	if _sieve_phase > 0 or (inv.gear.has("sieve") and _on_beach() and inv.bucket.is_empty()):
+func _try_pan(sieve_ok := true) -> void:
+	if _sieve_phase > 0 or (sieve_ok and inv.gear.has("sieve") and _on_beach() and inv.bucket.is_empty()):
 		_sieve_step()
 		return
 	if inv.bucket.is_empty() and inv.cons.is_empty():
@@ -576,7 +593,7 @@ func _end_panning() -> void:
 	pan_view.queue_free()
 	pan_view = null
 	_pan_dirt = null
-	_shovel.visible = true
+	_show_tool()
 	create_tween().tween_property(camera, "rotation:x", _pitch_before_pan, 0.3)
 	hud.show_pan(false)
 	_interact_block = 0.25
@@ -611,7 +628,7 @@ func _update_prompt() -> void:
 	var parts := PackedStringArray()
 	if mine != null:
 		var tool_name: String = ["hammer and chisel", "miner's pick", "rotary hammer"][clampi(inv.tool_tier, 0, 2)]
-		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() else "")
+		hud.set_prompt(Hud.key("Left mouse") + " Chip the rock with your %s (white quartz carries gold)" % tool_name if _aiming_at_rock() and tool == "shovel" else "")
 		return
 	if _sieve_phase == 1:
 		hud.set_prompt("Shaking the sieve under water...  the heavy garnets sink to the bottom")
@@ -631,7 +648,11 @@ func _update_prompt() -> void:
 			parts.append(Hud.key("E") + " Pan a shovelful")
 		elif not inv.cons.is_empty():
 			parts.append(Hud.key("E") + " Pan a jar of concentrate")
-	if _aiming_at_ground():
+	if tool == "pan" and _near_water() and not (inv.bucket.is_empty() and inv.cons.is_empty()):
+		parts.append(Hud.key("Left mouse") + " Pan")
+	elif tool == "sieve" and _on_beach():
+		parts.append(Hud.key("Left mouse") + " Sieve for garnets")
+	if _aiming_at_ground() and tool == "shovel":
 		var machine = _feedable_machine()
 		if machine != null:
 			parts.append(Hud.key("Left mouse") + " Dig into the %s" % machine.display_name.to_lower())
@@ -654,7 +675,7 @@ func refresh_hud() -> void:
 			extra.append("%s: yours" % c["name"])
 		else:
 			extra.append("%s: for sale, $%d" % [c["name"], c["price"]])
-		if inv.gear.has("detector") and driving == null:
+		if tool == "detector" and driving == null:
 			var r: float = deposits.richness(p.x, p.z)
 			var bars := clampi(ceili(r / 0.3), 0, 6)
 			extra.append("Detector   %s%s   %s" % ["|".repeat(bars), ".".repeat(6 - bars),
@@ -664,6 +685,13 @@ func refresh_hud() -> void:
 		if air < 0.995:
 			extra.append("Air   %d%%   get back to good air!" % roundi(air * 100.0))
 	hud.set_status(inv, inv.bucket_capacity(), clock, extra)
+	if not tools().has(tool):
+		select_tool("shovel")
+	var names := []
+	for t in tools():
+		names.append(tool_label(t))
+	hud.set_hotbar(names, tools().find(tool))
+	hud.show_hotbar(driving == null and pan_view == null)
 	hud.set_goal(inv.next_goal())
 
 
@@ -966,3 +994,103 @@ func debug_pan(mode: String) -> void:
 				var phase := fmod(t, 3.2)
 				sim.step(dt, phase < 1.2, 18.0 if phase >= 1.2 else 0.0, 0.0)
 				t += dt
+
+
+# --- Hotbar and inventory ---------------------------------------------------------------------
+
+var tool := "shovel"           # what's in hand: shovel (the pick underground), pan, sieve, detector
+
+
+## The tools you have, in hotbar order.
+func tools() -> Array:
+	var t := ["shovel", "pan"]
+	if inv.gear.has("sieve"):
+		t.append("sieve")
+	if inv.gear.has("detector"):
+		t.append("detector")
+	return t
+
+
+func tool_label(id: String) -> String:
+	if id == "shovel" and mine != null:
+		return ["Hammer", "Pick", "Rotary hammer"][clampi(inv.tool_tier, 0, 2)]
+	return {"shovel": "Shovel", "pan": "Gold pan", "sieve": "Garnet sieve", "detector": "Detector"}.get(id, id)
+
+
+func select_tool(id: String) -> void:
+	if pan_view != null or _sieve_phase > 0 or carrying != null or driving != null:
+		return
+	if id != tool:
+		Sfx.play("clink", null, -18.0, 0.7)
+	tool = id
+	_show_tool()
+	refresh_hud()
+
+
+func cycle_tool(dir: int) -> void:
+	var list := tools()
+	var i := list.find(tool)
+	select_tool(list[posmod(i + dir, list.size())])
+
+
+## Show the tool in hand (only the shovel has a model in hand for now).
+func _show_tool() -> void:
+	if _shovel != null:
+		_shovel.visible = tool == "shovel" and driving == null and carrying == null
+
+
+## The tool button with something other than the shovel in hand.
+func _use_tool() -> void:
+	match tool:
+		"pan":
+			_try_pan(false)
+		"sieve":
+			if mine == null and _on_beach():
+				_sieve_step()
+			else:
+				hud.toast("Take the garnet sieve to Garnet Beach on the Big Sable River.")
+		"detector":
+			var r: float = deposits.richness(global_position.x, global_position.z)
+			Sfx.play("clink", null, -14.0, 0.6 + minf(r, 2.0))
+
+
+func toggle_inventory() -> void:
+	if hud.note_open():
+		hud.hide_note()
+		return
+	var lines := PackedStringArray()
+	lines.append("[b]Money[/b]   $%d" % inv.money)
+	lines.append("[b]Bucket[/b]   %d / %d shovelfuls" % [inv.bucket.size(), inv.bucket_capacity()])
+	if not inv.cons.is_empty():
+		lines.append("[b]Concentrate[/b]   %d jar%s" % [inv.cons.size(), "" if inv.cons.size() == 1 else "s"])
+	if not inv.ore.is_empty():
+		lines.append("[b]Ore[/b]   %d / %d pieces" % [inv.ore.size(), inv.ore_capacity()])
+	lines.append("[b]Gold in the vial[/b]   %.3f g" % inv.vial_grams())
+	if not inv.nuggets.is_empty():
+		lines.append("[b]Nuggets[/b]   %d  (%.2f g)" % [inv.nuggets.size(), inv.nugget_grams()])
+	if not inv.specimens.is_empty():
+		lines.append("[b]Specimens[/b]   %d" % inv.specimens.size())
+	if not inv.garnets.is_empty():
+		var ct := 0.0
+		for g in inv.garnets:
+			ct += g
+		lines.append("[b]Garnets[/b]   %d  (%.1f carats)" % [inv.garnets.size(), ct])
+	if not inv.bars.is_empty():
+		lines.append("[b]Bars[/b]   %d  (%.2f g)" % [inv.bars.size(), inv.bar_grams()])
+	var held := PackedStringArray()
+	for t in tools():
+		held.append(tool_label(t))
+	lines.append("
+[b]Tools[/b]   " + ", ".join(held))
+	var gear := PackedStringArray()
+	for g in inv.gear:
+		if g in ["sieve", "detector"]:
+			continue
+		var v = inv.gear[g]
+		gear.append(str(g).replace("_", " ") + ("" if typeof(v) == TYPE_BOOL or int(v) <= 1 else " x%d" % int(v)))
+	if not gear.is_empty():
+		lines.append("[b]Gear[/b]   " + ", ".join(gear))
+	if not inv.claims.is_empty():
+		lines.append("[b]Claims[/b]   %d" % inv.claims.size())
+	hud.show_note("What you carry", "
+".join(lines))

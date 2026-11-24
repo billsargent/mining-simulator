@@ -1432,7 +1432,16 @@ func _selftest() -> void:
 	_check("the classifier takes gravel out of the pan", player.pan_view != null and shovel.gravel < 0.5)
 	player.pan_view.cancelled.emit()
 	player.refresh_hud()
-	_check("the detector reads the ground", "Detector" in hud._status.text and "yours" in hud._status.text)
+	_check("the detector stays quiet until it is in hand", not ("Detector   " in hud._status.text))
+	player.select_tool("detector")
+	_check("the hotbar holds the shovel, pan and detector", player.tools().has("detector") and hud._hotbar_key.begins_with("Shovel,Gold pan"))
+	_check("the detector reads the ground", "Detector   " in hud._status.text and "yours" in hud._status.text)
+	player.cycle_tool(1)
+	_check("the hotbar wraps around", player.tool == "shovel" or player.tool == player.tools()[0])
+	player.select_tool("shovel")
+	player.toggle_inventory()
+	_check("the inventory shows what you carry", hud.note_open() and "Bucket" in hud._note_text.text)
+	player.toggle_inventory()
 
 	# Journals and old maps.
 	enter_mine()
@@ -1812,7 +1821,7 @@ func _selftest() -> void:
 	var bound_keys := InputMap.action_get_events("interact").filter(func(e): return e is InputEventKey)
 	_check("rebound key works", bound_keys.size() == 1 and bound_keys[0].physical_keycode == KEY_G)
 	var pad_ok := true
-	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up"]:
+	for pa in ["move_forward", "jump", "interact", "carry", "dump", "dig", "map", "toggle_mouse", "pan_wash", "scroll_up", "tool_next", "tool_prev", "inventory"]:
 		if not InputMap.action_get_events(pa).any(func(e): return e is InputEventJoypadButton or e is InputEventJoypadMotion):
 			pad_ok = false
 	_check("controller reaches every action", pad_ok and InputMap.action_get_events("dig").any(func(e): return e is InputEventMouseButton))
