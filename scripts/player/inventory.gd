@@ -57,6 +57,18 @@ var chest_garnets := PackedFloat32Array()
 var chest_bars: Array = []
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
+# Records for the pause menu's Records page.
+var biggest_nugget := 0.0               # grams
+var gold_found := 0.0                   # grams, all time
+var earned := 0                         # dollars from sales, all time
+var best_day := 0                       # most dollars sold in one game day
+var best_day_no := 0
+var _today_no := 0
+var _today := 0
+var garnets_found := 0
+var walked := 0.0                       # metres
+var driven := 0.0
+var _garnets_seen := 0                  # garnets carried when last looked, to count new finds
 
 
 func log_sample(x: float, z: float, grams: float) -> void:
@@ -65,10 +77,32 @@ func log_sample(x: float, z: float, grams: float) -> void:
 
 func add_gold(pieces: PackedFloat32Array) -> void:
 	for m in pieces:
+		gold_found += m
+		biggest_nugget = maxf(biggest_nugget, m)
 		if m >= NUGGET_MASS:
 			nuggets.append(m)
 		else:
 			vial.append(m)
+
+
+## Note a sale for the records.
+func record_sale(dollars: int, day: int) -> void:
+	watch_garnets()
+	earned += dollars
+	if day != _today_no:
+		_today_no = day
+		_today = 0
+	_today += dollars
+	if _today > best_day:
+		best_day = _today
+		best_day_no = day
+
+
+## Called every frame: counts garnets that have turned up since the last look.
+func watch_garnets() -> void:
+	if garnets.size() > _garnets_seen:
+		garnets_found += garnets.size() - _garnets_seen
+	_garnets_seen = garnets.size()
 
 
 ## Put every valuable you carry into the chest. Returns how many things moved.
@@ -88,6 +122,7 @@ func store_in_chest() -> int:
 	nuggets = PackedFloat32Array()
 	specimens = PackedFloat32Array()
 	garnets = PackedFloat32Array()
+	_garnets_seen = 0
 	return n
 
 
@@ -111,6 +146,7 @@ func take_from_chest() -> int:
 	chest_nuggets = PackedFloat32Array()
 	chest_specimens = PackedFloat32Array()
 	chest_garnets = PackedFloat32Array()
+	_garnets_seen = garnets.size()
 	return n
 
 
@@ -196,6 +232,9 @@ func to_dict() -> Dictionary:
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
 		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples,
 		"crusher_powered": crusher_powered, "specimens": specimens, "garnets": garnets, "finds": finds, "gear": gear, "claims": claims,
+		"records": {"biggest_nugget": biggest_nugget, "gold_found": gold_found, "earned": earned, "best_day": best_day,
+			"best_day_no": best_day_no, "today_no": _today_no, "today": _today, "garnets_found": garnets_found,
+			"walked": walked, "driven": driven},
 		"chest": {"cons": _dirt_out(chest_cons), "ore": _dirt_out(chest_ore), "vial": chest_vial, "nuggets": chest_nuggets,
 			"specimens": chest_specimens, "garnets": chest_garnets, "bars": chest_bars},
 	}
@@ -220,6 +259,18 @@ func from_dict(d: Dictionary) -> void:
 	finds = d.get("finds", {})
 	gear = d.get("gear", {})
 	claims = d.get("claims", {})
+	var r: Dictionary = d.get("records", {})
+	biggest_nugget = r.get("biggest_nugget", 0.0)
+	gold_found = r.get("gold_found", 0.0)
+	earned = r.get("earned", 0)
+	best_day = r.get("best_day", 0)
+	best_day_no = r.get("best_day_no", 0)
+	_today_no = r.get("today_no", 0)
+	_today = r.get("today", 0)
+	garnets_found = r.get("garnets_found", 0)
+	walked = r.get("walked", 0.0)
+	driven = r.get("driven", 0.0)
+	_garnets_seen = garnets.size()
 	var ch: Dictionary = d.get("chest", {})
 	chest_cons = _dirt_in(ch.get("cons", []))
 	chest_ore = _dirt_in(ch.get("ore", []))

@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Esc menu: resume, save, settings, mine hazards on or off, start over, quit.
+## Esc menu: resume, save, settings, records, mine hazards on or off, start over, quit.
 
 const Settings = preload("res://scripts/core/settings.gd")
 
@@ -11,6 +11,8 @@ var _confirm_t := 0.0
 var _saved_t := 0.0
 var _main_panel: Control
 var _opt_panel: Control
+var _rec_panel: Control
+var _rec_grid: GridContainer
 var _key_btns := {}
 var _waiting := ""         # action waiting for a new key
 var _waiting_pad := ""     # action waiting for a new controller button
@@ -51,6 +53,7 @@ func _ready() -> void:
 	_button(box, "Resume", _resume)
 	_save_btn = _button(box, "Save game", _save)
 	_button(box, "Settings", _open_settings)
+	_button(box, "Records", _open_records)
 	_hazard_btn = _button(box, "", _toggle_hazards)
 	_show_hazards()
 	_new_btn = _button(box, "Start a new game", _new_game)
@@ -62,6 +65,7 @@ func _ready() -> void:
 	note.modulate = Color(1, 1, 1, 0.7)
 	box.add_child(note)
 	_build_settings(root, sb)
+	_build_records(root, sb)
 	visible = false
 
 
@@ -103,7 +107,11 @@ func _input(event: InputEvent) -> void:
 
 ## Give the first button of the open page keyboard/controller focus, so the D-pad can move.
 func _focus_first() -> void:
-	var page: Control = _opt_panel if _opt_panel.visible else _main_panel
+	var page: Control = _main_panel
+	if _opt_panel.visible:
+		page = _opt_panel
+	elif _rec_panel.visible:
+		page = _rec_panel
 	for b in page.find_children("*", "BaseButton", true, false):
 		if (b as Control).is_visible_in_tree():
 			(b as Control).grab_focus()
@@ -115,6 +123,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_mouse") or pad_back:
 		if visible and _opt_panel.visible:
 			_close_settings()
+		elif visible and _rec_panel.visible:
+			_close_records()
 		elif not visible and main.map_view.visible:
 			main.map_view.toggle()
 		elif visible:
@@ -137,6 +147,7 @@ func _process(delta: float) -> void:
 
 func open() -> void:
 	_close_settings()
+	_close_records()
 	visible = true
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -334,5 +345,72 @@ func _close_settings() -> void:
 		_opt_panel.visible = false
 		_main_panel.visible = true
 		_show_keys()
+		if visible:
+			_focus_first()
+
+
+# --- Records ------------------------------------------------------------------------------------
+
+func _build_records(root: Control, sb: StyleBoxFlat) -> void:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	root.add_child(panel)
+	_rec_panel = panel
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(420, 0)
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	var title := Label.new()
+	title.text = "Records"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	box.add_child(title)
+	_rec_grid = GridContainer.new()
+	_rec_grid.columns = 2
+	_rec_grid.add_theme_constant_override("h_separation", 28)
+	box.add_child(_rec_grid)
+	_button(box, "Back", _close_records)
+	panel.visible = false
+
+
+## The lines of the Records page: [label, value].
+static func record_lines(inv, days: int) -> Array:
+	var best := "none yet" if inv.best_day <= 0 else "$%d  (day %d)" % [inv.best_day, inv.best_day_no]
+	return [
+		["Days on the claim", str(days)],
+		["Gold found", "%.2f g" % inv.gold_found],
+		["Biggest nugget", "none yet" if inv.biggest_nugget <= 0.0 else "%.2f g" % inv.biggest_nugget],
+		["Pans washed", str(inv.pans)],
+		["Garnets found", str(inv.garnets_found)],
+		["Total earned", "$%d" % inv.earned],
+		["Best day's sales", best],
+		["Distance walked", "%.1f km" % (inv.walked / 1000.0)],
+		["Distance driven", "%.1f km" % (inv.driven / 1000.0)],
+	]
+
+
+func _open_records() -> void:
+	for c in _rec_grid.get_children():
+		c.queue_free()
+	for l in record_lines(main.player.inv, main.day_night.day):
+		for i in 2:
+			var t := Label.new()
+			t.text = l[i]
+			t.add_theme_font_size_override("font_size", 18)
+			if i == 0:
+				t.modulate = Color(1.0, 0.85, 0.4)
+			_rec_grid.add_child(t)
+	_main_panel.visible = false
+	_rec_panel.visible = true
+	_focus_first()
+
+
+func _close_records() -> void:
+	if _rec_panel != null and _rec_panel.visible:
+		_rec_panel.visible = false
+		_main_panel.visible = true
 		if visible:
 			_focus_first()
