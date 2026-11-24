@@ -131,6 +131,7 @@ func build_visuals() -> void:
 	needles.roughness = 0.95
 	var near_meshes: Array[ArrayMesh] = [_conifer_mesh(bark, needles), _conifer_mesh(bark, needles)]
 	var far_mesh := _far_tree_mesh()
+	var far_blocks := {}        # far trees in 512 m blocks: a few dozen draws instead of hundreds
 	for r: Vector2i in _trees:
 		var data: PackedFloat32Array = _trees[r]
 		var count := data.size() / 5
@@ -138,23 +139,25 @@ func build_visuals() -> void:
 			continue
 		var center := Vector3((r.x + 0.5) * REGION, 0.0, (r.y + 0.5) * REGION)
 		var lists := [[], []]
-		var all := []
+		var bk := Vector2i(floori(center.x / ROCK_BLOCK), floori(center.z / ROCK_BLOCK))
+		if not far_blocks.has(bk):
+			far_blocks[bk] = []
+		var all: Array = far_blocks[bk]
+		var bc := Vector3((bk.x + 0.5) * ROCK_BLOCK, 0.0, (bk.y + 0.5) * ROCK_BLOCK)
 		for i in count:
 			var o := i * 5
 			var s := data[o + 3]
 			var xf := Transform3D(Basis(Vector3.UP, data[o + 4]).scaled(Vector3(s, s, s)),
 				Vector3(data[o], data[o + 1] - 0.1, data[o + 2]) - center)
 			(lists[i % 2] as Array).append(xf)
-			all.append(xf)
+			all.append(Transform3D(xf.basis, xf.origin + center - bc))
 		for v in 2:
 			var mmi := _mmi(near_meshes[v], lists[v], center)
 			mmi.visibility_range_end = NEAR_TREES
 			mmi.visibility_range_end_margin = 20.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-		var far := _mmi(far_mesh, all, center)
-		far.visibility_range_begin = NEAR_TREES - 20.0
-		far.visibility_range_begin_margin = 20.0
-		far.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	for bk: Vector2i in far_blocks:
+		var far := _mmi(far_mesh, far_blocks[bk], Vector3((bk.x + 0.5) * ROCK_BLOCK, 0.0, (bk.y + 0.5) * ROCK_BLOCK))
 		far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# Boulders, grouped in 512 m blocks per shape.
 	var rock_meshes: Array[ArrayMesh] = []
@@ -521,9 +524,10 @@ func _far_tree_mesh() -> ArrayMesh:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.append_from(cone, 0, Transform3D(Basis(), Vector3(0, 5.0, 0)))
 	st.commit(mesh)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.12, 0.18, 0.1)
-	mat.roughness = 1.0
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/far_tree.gdshader")
+	mat.set_shader_parameter("region", REGION)
+	mat.set_shader_parameter("near_end", NEAR_TREES - 10.0)
 	mesh.surface_set_material(0, mat)
 	return mesh
 

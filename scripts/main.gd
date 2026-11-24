@@ -17,9 +17,10 @@ extends Node3D
 ##   --drive=atv|truck                  sit in a vehicle
 ##   --carry=sluice|pump|high_banker    carry a machine
 ##   --menu / --map                     open the Esc menu / the map
-##   --fps                              print the frame rate for 8 seconds
+##   --fps                              print frame rate, frame time, draw calls and memory over 8 s (also --inmine, --drive)
 
 const WorldGen = preload("res://scripts/world/world_gen.gd")
+const Lod = preload("res://scripts/util/lod.gd")
 const WorldTerrain = preload("res://scripts/world/world_terrain.gd")
 const Rivers = preload("res://scripts/world/rivers.gd")
 const Scatter = preload("res://scripts/world/scatter.gd")
@@ -186,6 +187,8 @@ func _ready() -> void:
 	Claims.setup(world, deposits)
 	_garnet_sign()
 	_build_bounds()
+	for root in [base, landmarks, town] + shafts:
+		Lod.cull_small(root)
 	hud = Hud.new()
 	add_child(hud)
 	player = Player.new()
@@ -982,9 +985,7 @@ func _run_harness() -> void:
 		get_tree().quit()
 		return
 	if _opts.has("fps"):
-		for sample in 4:
-			await get_tree().create_timer(2.0).timeout
-			print("FPS after %ds: %d   (%s)" % [(sample + 1) * 2, Engine.get_frames_per_second(), RenderingServer.get_video_adapter_name()])
+		await _fps_run()
 		get_tree().quit()
 		return
 	if _opts.has("shot"):
@@ -1047,6 +1048,59 @@ func _run_harness() -> void:
 		img.save_png(_opts["shot"])
 		print("Saved screenshot: ", _opts["shot"])
 		get_tree().quit()
+
+
+## --fps: settle, then print frame rate, frame and script time, draw calls and memory.
+func _fps_run() -> void:
+	if _opts.has("drive"):
+		vehicle_of(_opts["drive"]).enter(player)
+	if _opts.has("inmine"):
+		enter_mine()
+		player.global_position = mine.to_global(Vector3(28, 8.1, 30))
+		player.rotation.y = deg_to_rad(-90.0)
+	if _opts.has("drive"):
+		Input.action_press("move_forward")
+	await get_tree().create_timer(4.0).timeout     # streaming settles
+	var frames := 0
+	var worst := 0.0
+	var total := 0.0
+	var script_t := 0.0
+	var draws := 0.0
+	var prims := 0.0
+	var t0 := Time.get_ticks_usec()
+	while Time.get_ticks_usec() - t0 < 8000000:
+		var f0 := Time.get_ticks_usec()
+		await get_tree().process_frame
+		var dt := (Time.get_ticks_usec() - f0) / 1000.0
+		frames += 1
+		total += dt
+		worst = maxf(worst, dt)
+		script_t += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		draws += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+		prims += Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+	if _opts.has("fpsdetail"):
+		var cam := get_viewport().get_camera_3d()
+		var tally := {}
+		for g in find_children("*", "GeometryInstance3D", true, false):
+			if not g.is_visible_in_tree() or not (g is VisualInstance3D):
+				continue
+			var d: float = g.global_position.distance_to(cam.global_position)
+			var top: Node = g
+			while top.get_parent() != self and top.get_parent() != null:
+				top = top.get_parent()
+			var k := "%s/%s" % [top.name, g.get_class()]
+			if not tally.has(k):
+				tally[k] = [0, 0]
+			tally[k][0] += 1
+			if d < 300.0:
+				tally[k][1] += 1
+		for k in tally:
+			print("  %-50s %6d  (<300 m: %d)" % [k, tally[k][0], tally[k][1]])
+	print("FPS %.0f  frame %.2f ms  worst %.1f ms  process %.2f ms  draws %d  prims %dk  vram %d MB  static %d MB  nodes %d   (%s)" % [
+		frames / (total / 1000.0), total / frames, worst, script_t / frames, int(draws / frames), int(prims / frames / 1000.0),
+		int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0),
+		int(Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), RenderingServer.get_video_adapter_name()])
 
 
 func _apply_view() -> void:

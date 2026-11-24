@@ -37,6 +37,8 @@ var hud: Hud
 var inv := Inventory.new()
 var clock := ""
 var map_open := false
+const SURFACE_FAR := 1500.0
+const UNDERGROUND_FAR := 160.0
 var mine = null                       # the mine interior, while you're inside it
 var lamp_charge := 1.0                # headlamp battery; only runs down underground, with hazards on
 var air := 1.0                        # how much breath you have left in bad air
@@ -77,7 +79,7 @@ func _ready() -> void:
 	camera.fov = Settings.fov
 	camera.add_to_group("fov_camera")
 	camera.near = 0.02
-	camera.far = 1500.0
+	camera.far = SURFACE_FAR
 	add_child(camera)
 	camera.make_current()
 	_lamp = SpotLight3D.new()
@@ -166,6 +168,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	_look_grace -= delta
 	_dig_cd -= delta
+	# Underground, a short view keeps the whole surface world (hundreds of metres up) out of the frustum.
+	camera.far = UNDERGROUND_FAR if mine != null else SURFACE_FAR
 	_interact_block -= delta
 	_hud_t -= delta
 	if _hud_t <= 0.0:

@@ -387,6 +387,8 @@ static func apply_graphics(tree: SceneTree) -> void:
 	if _sun != null:
 		_sun.shadow_enabled = quality >= 1
 		_sun.directional_shadow_max_distance = 160.0 if quality >= 2 else 80.0
+		# Medium: two shadow cascades over its shorter reach draw the shadow casters half as often.
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if quality >= 2 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	RenderingServer.directional_shadow_atlas_set_size(4096 if quality >= 2 else 2048, true)
 	var vp := tree.root
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if render_scale < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
@@ -400,6 +402,12 @@ static func apply_graphics(tree: SceneTree) -> void:
 		DisplayServer.window_set_mode(want)
 	for cam in tree.get_nodes_in_group("fov_camera"):
 		cam.fov = fov
+
+
+## How close terrain pieces must be before they split into finer ones. Low keeps fewer pieces
+## (about half the triangles and draws); Medium and High are the same.
+static func terrain_split() -> float:
+	return 1.0 if quality == 0 else 1.5
 
 
 ## How far around you grass grows: the biggest cost after shadows.
