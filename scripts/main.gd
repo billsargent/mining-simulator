@@ -58,6 +58,7 @@ const Town = preload("res://scripts/world/town.gd")
 const Claims = preload("res://scripts/core/claims.gd")
 const Market = preload("res://scripts/core/market.gd")
 const Recovery = preload("res://scripts/machines/recovery.gd")
+const UpdateCheck = preload("res://scripts/core/update_check.gd")
 
 const MINE_DEPTH := -300.0     # the mine interior sits this far below sea level, out of sight
 
@@ -111,6 +112,11 @@ func _ready() -> void:
 	if _opts.has("fps"):
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	_setup_input()
+	if _opts.is_empty() and Settings.check_updates:
+		var uc := UpdateCheck.new()
+		uc.found.connect(_on_update)
+		add_child(uc)
+		uc.start()
 	var sfx := Sfx.new()
 	sfx.main = self
 	add_child(sfx)
@@ -859,6 +865,14 @@ func new_game() -> void:
 	get_tree().reload_current_scene()
 
 
+## The update check found a newer release. The world may still be loading; wait for the HUD.
+func _on_update(tag: String, url: String) -> void:
+	while hud == null or menu == null:
+		await get_tree().create_timer(1.0).timeout
+	menu.show_update(tag, url)
+	hud.toast("A new version of Paystreak is out (%s). Esc menu has the link." % tag, Color(0.75, 1.0, 0.7), 8.0)
+
+
 # --- Test harness ------------------------------------------------------------------
 
 func _parse_args() -> Dictionary:
@@ -1252,6 +1266,9 @@ func _selftest() -> void:
 		calm = calm and Market.event(d) == ""
 	_check("price events are fixed by day, bounded, and both kinds happen", same and calm and kinds.has("spike") and kinds.has("slump")
 		and Market.price(150) > Market.BASE_PRICE * 0.55 and Market.event_shift(150) <= Market.SPIKE)
+	_check("version comparison", UpdateCheck.is_newer("v0.10", "0.9") and UpdateCheck.is_newer("v1.0", "v0.99.1")
+		and not UpdateCheck.is_newer("v0.9", "0.9") and not UpdateCheck.is_newer("v0.8", "0.9")
+		and UpdateCheck.is_newer("v0.9.1", "0.9") and not UpdateCheck.is_newer("v0.9-beta", "0.9"))
 	print("  gold price over 40 days: $%.2f to $%.2f a gram" % [lo, hi])
 	base.journal.interact(player)
 	_check("Grandpa's journal marks the old mine", map_view.marks.size() == 1

@@ -32,6 +32,13 @@ jobs:
             templates/macos.zip templates/version.txt -d $dest
           rm *.zip *.tpz
 
+      - name: Stamp the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          sed -i "s/^config\/version=.*/config\/version=\"$v\"/" project.godot
+          grep '^config/version=' project.godot
+
       - name: Self-test
         run: timeout 900 godot --headless --path . -- --selftest
 

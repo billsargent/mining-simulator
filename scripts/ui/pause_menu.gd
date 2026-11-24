@@ -2,6 +2,7 @@ extends CanvasLayer
 ## Esc menu: resume, save, settings, records, mine hazards on or off, start over, quit.
 
 const Settings = preload("res://scripts/core/settings.gd")
+const UpdateCheck = preload("res://scripts/core/update_check.gd")
 
 var main
 var _hazard_btn: Button
@@ -18,6 +19,9 @@ var _waiting := ""         # action waiting for a new key
 var _waiting_pad := ""     # action waiting for a new controller button
 var _pad_btns := {}
 var _quality_btn: Button
+var _update_label: Label
+var _update_btn: Button
+var _update_url := ""
 
 
 func _ready() -> void:
@@ -58,6 +62,14 @@ func _ready() -> void:
 	_show_hazards()
 	_new_btn = _button(box, "Start a new game", _new_game)
 	_button(box, "Save and quit", _quit)
+	_update_label = Label.new()
+	_update_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_update_label.add_theme_font_size_override("font_size", 15)
+	_update_label.modulate = Color(0.75, 1.0, 0.7)
+	_update_label.visible = false
+	box.add_child(_update_label)
+	_update_btn = _button(box, "Open the release page", func() -> void: OS.shell_open(_update_url))
+	_update_btn.visible = false
 	var note := Label.new()
 	note.text = "Mine hazards are lamp batteries, bad air and cave-ins. Turn them off to explore the mine in peace.\n\nThe game also saves itself every minute and when you quit."
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -145,6 +157,14 @@ func _process(delta: float) -> void:
 			_save_btn.text = "Save game"
 
 
+## A newer release is out: show a line and a button that opens its page.
+func show_update(tag: String, url: String) -> void:
+	_update_url = url
+	_update_label.text = "A new version is out: %s (you have %s)." % [tag, UpdateCheck.current()]
+	_update_label.visible = true
+	_update_btn.visible = true
+
+
 func open() -> void:
 	_close_settings()
 	_close_records()
@@ -216,6 +236,8 @@ func _build_settings(root: Control, sb: StyleBoxFlat) -> void:
 	_check(box, "Full screen", Settings.fullscreen, func(on: bool) -> void: Settings.fullscreen = on)
 	_check(box, "Vertical sync", Settings.vsync, func(on: bool) -> void: Settings.vsync = on)
 	_slider(box, "Field of view", 60, 100, Settings.fov, "%d", func(v: float) -> void: Settings.fov = v)
+	_heading(box, "Game")
+	_check(box, "Check for updates at start", Settings.check_updates, func(on: bool) -> void: Settings.check_updates = on)
 	_heading(box, "Sound")
 	_slider(box, "Volume", 0, 100, Settings.volume * 100.0, "%d%%", func(v: float) -> void: Settings.volume = v / 100.0)
 	_slider(box, "Music", 0, 100, Settings.music_volume * 100.0, "%d%%", func(v: float) -> void: Settings.music_volume = v / 100.0)
