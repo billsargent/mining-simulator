@@ -56,6 +56,7 @@ var _shovel_rest := Transform3D()
 var _aim := {}
 var _dig_cd := 0.0
 var _interact_block := 0.0
+var _skip_dump := false     # B just closed a note; don't also dump the bucket
 var _pitch_before_pan := 0.0
 var _look_grace := 0.3                # ignore the mouse jump that comes with capturing the cursor
 var _hud_t := 0.0
@@ -120,6 +121,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if driving != null or map_open:
 		return
 	var captured := Settings.mouse_captured()
+	if event is InputEventJoypadButton and event.is_action_pressed("ui_cancel") and hud.note_open():
+		hud.hide_note()     # controller: B puts a note down
+		_skip_dump = true
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventMouseMotion:
 		if captured and pan_view == null and _look_grace <= 0.0:
 			var motion := event as InputEventMouseMotion
@@ -243,8 +249,9 @@ func _physics_process(delta: float) -> void:
 	elif Input.is_action_just_pressed("carry") and _target != null and _target.has_method("set_carried"):
 		start_carry(_target)
 		return
-	if Input.is_action_just_pressed("dump"):
+	if Input.is_action_just_pressed("dump") and not _skip_dump:
 		_dump_bucket()
+	_skip_dump = false
 	_update_sieve(delta)
 	_update_prompt()
 
