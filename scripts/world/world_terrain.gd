@@ -11,11 +11,12 @@ signal dug(center: Vector3, radius: float)
 
 const WorldGen = preload("res://scripts/world/world_gen.gd")
 const Tex = preload("res://scripts/util/tex.gd")
+const Settings = preload("res://scripts/core/settings.gd")   # detail and photo textures follow quality
 
 const LEAF := 16.0
 const N := 32
 const MAX_LEVEL := 7 + (2 if WorldGen.SIZE > 4096.0 else (1 if WorldGen.SIZE > 2048.0 else 0))   # root node covers the world
-const SPLIT_K := 1.5
+const SPLIT_K := 1.5         # pieces split when nearer than this many of their sizes (Low: Settings.terrain_split())
 const TILE := 32.0
 const TN := 64
 const TILES := int(WorldGen.SIZE / TILE)
@@ -48,6 +49,8 @@ var _dig_h := {}            # Vector2i -> PackedFloat32Array, 33×33 height chan
 var _dig_m := {}            # Vector2i -> PackedFloat32Array, 33×33 dug marks (0..1)
 var _body: StaticBody3D
 var _refresh_t := 0.0
+var _split := SPLIT_K
+var _has_photos := false
 
 
 func setup(w: WorldGen) -> void:
@@ -67,7 +70,9 @@ func setup(w: WorldGen) -> void:
 			_material.set_shader_parameter("tex_" + t, tex)
 			var a := Tex.average(t)
 			_material.set_shader_parameter("avg_" + t, Vector3(a.r, a.g, a.b))
-	_material.set_shader_parameter("use_photos", Tex.photo("grass", "albedo") != null)
+	_has_photos = Tex.photo("grass", "albedo") != null
+	_split = Settings.terrain_split()
+	_material.set_shader_parameter("use_photos", _has_photos and Settings.quality >= 1)
 	var centers := PackedVector2Array()
 	for r in WorldGen.REGIONS:
 		centers.append((r[1] as Vector2) * WorldGen.LAYOUT)
@@ -383,6 +388,10 @@ func _exit_tree() -> void:
 
 
 func _refresh() -> void:
+	if _split != Settings.terrain_split():
+		_split = Settings.terrain_split()
+		_material.set_shader_parameter("use_photos", _has_photos and Settings.quality >= 1)
+		_last_focus = Vector3(-1.0e9, 0.0, -1.0e9)     # quality changed: rebuild the wanted set
 	if _settled and focus.distance_to(_last_focus) > 6.0:
 		_last_focus = focus
 		_wanted = _desired()
@@ -478,7 +487,7 @@ func _collect(level: int, ix: int, iz: int, out: Array[Vector3i]) -> void:
 	var z0 := iz * size
 	var dx := maxf(maxf(x0 - focus.x, focus.x - (x0 + size)), 0.0)
 	var dz := maxf(maxf(z0 - focus.z, focus.z - (z0 + size)), 0.0)
-	if level > 0 and sqrt(dx * dx + dz * dz) < size * SPLIT_K:
+	if level > 0 and sqrt(dx * dx + dz * dz) < size * _split:
 		for c in 4:
 			_collect(level - 1, ix * 2 + (c & 1), iz * 2 + (c >> 1), out)
 	else:
