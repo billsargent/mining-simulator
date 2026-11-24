@@ -574,6 +574,11 @@ Good showing! That's how you read a creek: look for where the water slows."
 		var src: Vector3 = _pan_dirt.source
 		if src != Vector3.ZERO:
 			inv.log_sample(src.x, src.z, grams)
+			if deposits != null and mine == null:
+				var pn: Array = load("res://scripts/gold/pan_note.gd").make(deposits, src.x, src.z, kept)
+				inv.add_pan_note("Pan %d: %s %s" % [inv.pans, pn[0], pn[1]])
+				msg += "
+" + pn[1]
 	if not lost.is_empty():
 		msg += "   (%d washed out)" % lost.size()
 	if not kept.is_empty():
@@ -1094,5 +1099,10 @@ func toggle_inventory() -> void:
 		lines.append("[b]Gear[/b]   " + ", ".join(gear))
 	if not inv.claims.is_empty():
 		lines.append("[b]Claims[/b]   %d" % inv.claims.size())
+	if not inv.pan_notes.is_empty():
+		lines.append("
+[b]Pan notes[/b]")
+		for i in range(inv.pan_notes.size() - 1, maxi(-1, inv.pan_notes.size() - 5), -1):
+			lines.append("[i]%s[/i]" % str(inv.pan_notes[i]).replace("[", "[lb]"))
 	hud.show_note("What you carry", "
 ".join(lines))

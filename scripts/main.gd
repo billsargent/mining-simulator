@@ -2043,6 +2043,7 @@ func _selftest() -> void:
 	Settings.apply_graphics(get_tree())
 	_check("high quality has shadows", day_night.sun.shadow_enabled)
 	_check_records()
+	_check_pan_notes()
 	print("SELFTEST complete: %d failed" % _failures)
 
 
@@ -2129,6 +2130,29 @@ func _savetest(mode: String) -> void:
 			get_tree().get_nodes_in_group("machines").size(), on_truck, machine_of("high_banker") != null,
 			terrain.dug_at(spot.x, spot.y), truck.global_position.snapped(Vector3.ONE * 0.01)])
 		SaveGame.delete()
+
+
+func _check_pan_notes() -> void:
+	var PanNote = load("res://scripts/gold/pan_note.gd")
+	var spot: Vector2 = deposits.rich_spot("Cabin Creek")
+	var pn: Array = PanNote.make(deposits, spot.x, spot.y, PackedFloat32Array([0.004, 0.006, 0.08]))
+	_check("pan notes: colors, size and a hint", str(pn[0]).begins_with("3 colors, coarse") and str(pn[1]).length() > 10)
+	var far: Array = PanNote.make(deposits, spot.x + 900.0, spot.y + 900.0, PackedFloat32Array())
+	_check("pan notes: empty pan away from water", far[0] == "No colors." and str(far[1]).length() > 10)
+	var inv = player.inv
+	for i in 12:
+		inv.add_pan_note("note %d" % i)
+	_check("pan notes: log keeps the newest", inv.pan_notes.size() == inv.PAN_NOTES_MAX and inv.pan_notes[-1] == "note 11")
+	var d: Dictionary = inv.to_dict()
+	var Inv = load("res://scripts/player/inventory.gd")
+	var copy = Inv.new()
+	copy.from_dict(d)
+	_check("pan notes: saved and loaded", copy.pan_notes == inv.pan_notes)
+	d.erase("pan_notes")
+	var old = Inv.new()
+	old.from_dict(d)
+	_check("pan notes: old save loads empty", old.pan_notes.is_empty())
+	print("  pan note: ", pn[0], " ", pn[1], " | ", far[1])
 
 
 func _check_records() -> void:
