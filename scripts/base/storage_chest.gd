@@ -1,6 +1,7 @@
 extends StaticBody3D
 ## A sea chest in the cabin: somewhere safe to keep gold and goods between trips.
-## Mouse wheel switches between putting everything in and taking everything out; E does it.
+## E stores everything valuable you carry, or takes it all back (the wheel picks which;
+## it picks the side that has something on its own).
 
 const Parts = preload("res://scripts/machines/parts.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
@@ -25,15 +26,37 @@ func build() -> void:
 
 func prompt(player) -> String:
 	var inv = player.inv
-	var t := "[b]Storage chest[/b]\nIn the chest:  %s" % inv.describe_goods(inv.chest_goods())
-	t += "\nYou carry:  %s" % inv.describe_goods(inv.carried_goods())
-	var put := "Put everything in"
-	var take := "Take everything out"
+	var inside: Array = inv.chest_goods()
+	var carried: Array = inv.carried_goods()
+	_pick_sensible(inv, inside, carried)
+	var t := "[b]Storage chest[/b]
+In the chest:  %s" % inv.describe_goods(inside)
+	t += "
+You carry:  %s" % inv.describe_goods(carried)
+	if inv.goods_empty(inside) and inv.goods_empty(carried):
+		return t + "
+[color=#aaaaaa]Gold, jars, ore, bars, nuggets, specimens and garnets go in here.[/color]"
+	var put := "Store all"
+	var take := "Take all"
 	if _take:
-		t += "\n   %s      [color=#ffd866]> %s[/color]" % [put, take]
+		t += "
+   %s      [color=#ffd866]> %s[/color]" % [put, take]
 	else:
-		t += "\n[color=#ffd866]> %s[/color]      %s" % [put, take]
-	return t + "\n" + Hud.key("Wheel") + " Choose     " + Hud.key("E") + " Do it"
+		t += "
+[color=#ffd866]> %s[/color]      %s" % [put, take]
+	if _take and int(inside[1]) > 0 and inv.ore.size() + int(inside[1]) > inv.ore_capacity():
+		t += "
+[color=#ff9966]Your ore sack holds %d more; the rest stays here.[/color]" % maxi(0, inv.ore_capacity() - inv.ore.size())
+	return t + "
+" + Hud.key("Wheel") + " Store / take     " + Hud.key("E") + " Do it"
+
+
+## If the chosen side has nothing to move but the other does, choose the other.
+func _pick_sensible(inv, inside: Array, carried: Array) -> void:
+	if _take and inv.goods_empty(inside) and not inv.goods_empty(carried):
+		_take = false
+	elif not _take and inv.goods_empty(carried) and not inv.goods_empty(inside):
+		_take = true
 
 
 func scroll(_player, _dir: int) -> void:
@@ -42,14 +65,22 @@ func scroll(_player, _dir: int) -> void:
 
 func interact(player) -> void:
 	var inv = player.inv
-	var n: int = inv.take_from_chest() if _take else inv.store_in_chest()
+	_pick_sensible(inv, inv.chest_goods(), inv.carried_goods())
+	var left: int = inv.chest_ore.size()
+	var moved: Array = inv.take_from_chest() if _take else inv.store_in_chest()
 	_flap()
-	if n == 0:
-		player.hud.toast("Nothing to take out." if _take else "Nothing to put away. Gold, jars, ore, bars, nuggets, specimens and garnets go in here.")
-	elif _take:
-		player.hud.toast("Took %d thing%s out of the chest." % [n, "" if n == 1 else "s"], Color(1.0, 0.9, 0.6))
+	if inv.goods_empty(moved):
+		if _take and left > 0:
+			player.hud.toast("Your ore sack is full. %d piece%s of ore stay in the chest." % [left, "" if left == 1 else "s"], Color(1.0, 0.6, 0.4))
+		else:
+			player.hud.toast("Nothing to move. Gold, jars, ore, bars, nuggets, specimens and garnets go in here.")
 	else:
-		player.hud.toast("Put %d thing%s away in the chest." % [n, "" if n == 1 else "s"], Color(1.0, 0.9, 0.6))
+		var msg: String = ("Took out: " if _take else "Stored: ") + inv.describe_goods(moved)
+		var still: int = inv.chest_ore.size() if _take else 0
+		if still > 0:
+			msg += "
+Ore sack full: %d piece%s of ore left in the chest." % [still, "" if still == 1 else "s"]
+		player.hud.toast(msg, Color(1.0, 0.9, 0.6))
 	player.refresh_hud()
 
 

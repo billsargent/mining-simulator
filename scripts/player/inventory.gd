@@ -71,9 +71,9 @@ func add_gold(pieces: PackedFloat32Array) -> void:
 			vial.append(m)
 
 
-## Put every valuable you carry into the chest. Returns how many things moved.
-func store_in_chest() -> int:
-	var n := cons.size() + ore.size() + nuggets.size() + specimens.size() + garnets.size() + bars.size() + (1 if not vial.is_empty() else 0)
+## Put every valuable you carry into the chest. Returns what moved, in describe_goods() form.
+func store_in_chest() -> Array:
+	var moved := carried_goods()
 	chest_cons.append_array(cons)
 	chest_ore.append_array(ore)
 	chest_bars.append_array(bars)
@@ -88,15 +88,16 @@ func store_in_chest() -> int:
 	nuggets = PackedFloat32Array()
 	specimens = PackedFloat32Array()
 	garnets = PackedFloat32Array()
-	return n
+	return moved
 
 
-## Take everything back out (ore only as far as the sack holds). Returns how many things moved.
-func take_from_chest() -> int:
+## Take everything back out (ore only as far as the sack holds; the rest stays in the chest).
+## Returns what moved, in describe_goods() form.
+func take_from_chest() -> Array:
 	var room := maxi(0, ore_capacity() - ore.size())
 	var ore_out := chest_ore.slice(0, room)
-	var n := chest_cons.size() + ore_out.size() + chest_nuggets.size() + chest_specimens.size() + chest_garnets.size() + chest_bars.size() \
-		+ (1 if not chest_vial.is_empty() else 0)
+	var moved := chest_goods()
+	moved[1] = ore_out.size()
 	cons.append_array(chest_cons)
 	ore.append_array(ore_out)
 	bars.append_array(chest_bars)
@@ -111,7 +112,15 @@ func take_from_chest() -> int:
 	chest_nuggets = PackedFloat32Array()
 	chest_specimens = PackedFloat32Array()
 	chest_garnets = PackedFloat32Array()
-	return n
+	return moved
+
+
+## True when describe_goods() would say "nothing".
+static func goods_empty(g: Array) -> bool:
+	for i in g.size():
+		if float(g[i]) > 0.0:
+			return false
+	return true
 
 
 func chest_goods() -> Array:
