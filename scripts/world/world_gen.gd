@@ -119,6 +119,7 @@ func generate() -> void:
 	sites["garnet"] = {"pos": _beach}
 	progress = "Leaving things by the roads"
 	_make_places()
+	_make_shafts()
 	progress_frac = 1.0
 	progress = "Done"
 
@@ -1049,6 +1050,37 @@ func _make_places() -> void:
 					n += 1
 					break
 			next_at = along + rng.randf_range(550.0, 950.0)
+
+
+# --- Old mineshafts ---------------------------------------------------------------------------
+
+## A few old vertical shafts up in the hills of the Old Mining District, off the roads. Each gets a
+## small level pad for its collar and headframe; climbing down leads into a small mine of its own.
+var shafts: Array = []         # {id, pos: Vector2, yaw, h, seed}
+const SHAFT_COUNT := 3
+const SHAFT_RADIUS := 6.0
+
+
+func _make_shafts() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _rng.seed + 313
+	var center: Vector2 = (REGIONS[1][1] as Vector2) * LAYOUT
+	for attempt in 400:
+		if shafts.size() >= SHAFT_COUNT:
+			break
+		var a := rng.randf() * TAU
+		var p := center + Vector2(cos(a), sin(a)) * rng.randf_range(150.0, 900.0)
+		if not _place_ok(p, 120.0) or road_weight(p.x, p.y) > 0.0:
+			continue
+		var far := true
+		for s in shafts:
+			if (s["pos"] as Vector2).distance_to(p) < 300.0:
+				far = false
+		if not far:
+			continue
+		var h := surface(p.x, p.y)
+		shafts.append({"id": "shaft_%d" % shafts.size(), "pos": p, "yaw": rng.randf() * TAU, "h": h, "seed": rng.randi()})
+		_add_spot(p, SHAFT_RADIUS, h)
 
 
 func water_level_near(r: Dictionary, p: Vector2) -> float:

@@ -4,9 +4,13 @@ extends StaticBody3D
 const Hud = preload("res://scripts/ui/hud.gd")
 
 var is_exit := false
+var is_ladder := false        # the ladder up an old shaft (mine.gd _shaft_props)
 
 
 func prompt(_player) -> String:
+	if is_ladder:
+		return "[b]Ladder[/b]   daylight far above
+%s Climb out" % Hud.key("E")
 	if is_exit:
 		return "[b]Daylight[/b]\n%s Leave the mine" % Hud.key("E")
 	return "[b]Old mine entrance[/b]   carved in the timber: 1887\n%s Squeeze through the boards" % Hud.key("E")

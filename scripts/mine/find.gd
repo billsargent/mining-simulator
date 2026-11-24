@@ -30,6 +30,26 @@ const FINDS = {
 		+ "Dutch has gone north to find his ledge again. He drew me the way and I have put it where the\n\n"
 		+ "(the bottom of the page is torn away)",
 		"", ""],
+	# Left at the foot of the old shafts in the Old Mining District.
+	"shaft_a": ["Tally board", "A shift tally, chalked on a board",
+		"Six men, two shifts. Forty feet of drift since spring and the vein still wants to run east.
+
+"
+		+ "Under it, in another hand: \"Ore here is thin. Willow Creek gravel paid us better than this hole ever will.\"",
+		"Willow Creek", "Willow Creek, from the tally board"],
+	"shaft_b": ["Powder box lid", "Words cut into a powder box lid",
+		"SHAFT No. 2  SUNK 1891  ABANDONED 1893
+
+"
+		+ "Water came in faster than the pump. We followed the white rock as far as we dared. What gold there is sits in the quartz, so break it where it shows.",
+		"", ""],
+	"shaft_c": ["Letter in an oilskin", "A letter, folded in oilskin",
+		"Brother,
+
+The shaft is a bust but I have found where its gold went. Bench Creek, down in the foothills, carries the same rusty flakes. I am going to work it in the spring.
+
+Your brother, Amos",
+		"Bench Creek", "Amos's creek"],
 }
 
 var kind := "journal"

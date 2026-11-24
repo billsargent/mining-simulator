@@ -51,6 +51,7 @@ const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
+const OldShaft = preload("res://scripts/world/old_shaft.gd")
 const Settings = preload("res://scripts/core/settings.gd")
 const Sfx = preload("res://scripts/core/sfx.gd")
 const Paydirt = preload("res://scripts/gold/paydirt.gd")
@@ -81,6 +82,8 @@ var menu: PauseMenu
 var map_view: MapView
 var day_night: DayNight
 var mine: Mine
+var side_mine: Mine            # the small mine under one old shaft; only one is kept at a time
+var shafts: Array = []         # OldShaft nodes, by index into world.shafts
 var ready_to_play := false
 
 var _opts := {}
@@ -167,6 +170,11 @@ func _ready() -> void:
 	roadside = Roadside.new()
 	add_child(roadside)
 	roadside.build(world, terrain)
+	for i in world.shafts.size():
+		var sh := OldShaft.new()
+		add_child(sh)
+		sh.build(i, world.shafts[i])
+		shafts.append(sh)
 	weather = Weather.new()
 	add_child(weather)
 	weather.setup(day_night)
@@ -385,12 +393,59 @@ func enter_mine() -> void:
 		hud.toast("Dark and cold. White quartz veins in the walls can carry gold: chip them with left mouse.", Color(1.0, 0.9, 0.6), 7.0)
 
 
+## Climb down an old shaft into its small mine. Its rock is built fresh each time (digging in
+## the side mines is not saved), and only one side mine exists at a time.
+func enter_shaft(i: int) -> void:
+	var data: Dictionary = world.shafts[i]
+	if side_mine == null or side_mine.shaft_id != data["id"]:
+		if side_mine != null:
+			side_mine.queue_free()
+		side_mine = Mine.new()
+		side_mine.layout = "shaft"
+		side_mine.layout_seed = data["seed"]
+		side_mine.shaft_id = data["id"]
+		add_child(side_mine)
+		var p: Vector2 = data["pos"]
+		side_mine.global_position = Vector3(p.x - 4.0, MINE_DEPTH - 60.0, p.y - 15.0)
+		side_mine.build()
+	player.global_position = side_mine.spawn_point()
+	player.rotation = Vector3(0.0, side_mine.spawn_yaw(), 0.0)
+	player.velocity = Vector3.ZERO
+	player.mine = side_mine
+	day_night.underground = true
+	day_night.apply()
+	if not player.headlamp_on():
+		player.set_headlamp(true)
+	hud.toast("Down the ladder. Old drifts, and white quartz in the walls.", Color(1.0, 0.9, 0.6), 4.0)
+
+
+## The shaft the player is under, if they are in a side mine.
+func _current_shaft():
+	if player.mine == null or player.mine != side_mine:
+		return null
+	for sh in shafts:
+		if world.shafts[sh.index]["id"] == side_mine.shaft_id:
+			return sh
+	return null
+
+
 func exit_mine() -> void:
+	var sh = _current_shaft()
+	if sh != null:
+		var ep: Vector3 = sh.exit_point()
+		player.global_position = Vector3(ep.x, terrain.height_at(ep.x, ep.z) + 0.1, ep.z)
+		player.rotation = Vector3(0.0, sh.exit_yaw(), 0.0)
+		_left_underground()
+		return
 	var site: Dictionary = world.sites["mine"]
 	var pos: Vector2 = (site["pos"] as Vector2) + (site["facing"] as Vector2) * 3.5
 	var facing: Vector2 = site["facing"]
 	player.global_position = Vector3(pos.x, terrain.height_at(pos.x, pos.y) + 0.1, pos.y)
 	player.rotation = Vector3(0.0, atan2(-facing.x, -facing.y), 0.0)
+	_left_underground()
+
+
+func _left_underground() -> void:
 	player.velocity = Vector3.ZERO
 	player.mine = null
 	day_night.underground = false
@@ -791,8 +846,13 @@ func _collect_save() -> Dictionary:
 	if player.driving != null:
 		ppos = player.driving.to_global(player.driving.exit_offset)
 		ppos.y = terrain.height_at(ppos.x, ppos.z) + 0.1
+	var under_shaft = _current_shaft()
+	if under_shaft != null:
+		# Side mines are not saved: a save made down a shaft loads at its collar.
+		ppos = under_shaft.exit_point()
+		ppos.y = terrain.height_at(ppos.x, ppos.z) + 0.1
 	return {
-		"player": {"pos": ppos, "yaw": player.rotation.y, "headlamp": player.headlamp_on(), "in_mine": player.mine != null,
+		"player": {"pos": ppos, "yaw": player.rotation.y, "headlamp": player.headlamp_on(), "in_mine": player.mine != null and under_shaft == null,
 			"lamp": player.lamp_charge},
 		"mine": {"carved": mine.carved if mine != null else PackedInt32Array(), "collapsed": mine != null and mine.hazards.collapsed},
 		"inventory": inv_data,
@@ -948,7 +1008,9 @@ func _run_harness() -> void:
 			map_view.toggle()
 		if _opts.has("lamp"):
 			player.set_headlamp(true)
-		if _opts.has("inmine"):
+		if _opts.get("inmine", "") == "shaft":
+			enter_shaft(0)
+		elif _opts.has("inmine"):
 			enter_mine()
 			var spots := {"adit": [Vector3(8, 8.1, 30), -90.0], "vein": [Vector3(40.5, 8.1, 30), -70.0],
 				"junction": [Vector3(28, 8.1, 30), -90.0], "lower": [Vector3(63.5, 1.6, 22), 20.0],
@@ -1133,6 +1195,10 @@ func _apply_view() -> void:
 			"journal":
 				from = base.to_global(Vector3(-1.5, 0.0, 5.6))
 				at = base.to_global(Vector3(-1.9, 0.5, 3.3))
+			"shaft":
+				var sh = shafts[0]
+				from = sh.to_global(Vector3(-7.0, 0.0, 5.0))
+				at = sh.to_global(Vector3(0, 2.0, 0))
 			"camp", "mine":
 				var site: Dictionary = world.sites[_opts["view"]]
 				var pos: Vector2 = site["pos"]
@@ -1449,6 +1515,33 @@ func _selftest() -> void:
 	save_now()
 	_check("mine digging is saved", (SaveGame.read().get("mine", {}).get("carved", PackedInt32Array()) as PackedInt32Array).size() > 3)
 	SaveGame.delete()
+
+	# Old shafts in the hills: climb down, stand in the drift, find quartz, climb back out.
+	_check("old shafts in the Old Mining District", shafts.size() == world.SHAFT_COUNT
+		and world.shafts.all(func(d): return world.region_name(d["pos"].x, d["pos"].y) == "Old Mining District"))
+	enter_shaft(0)
+	for i in 60:
+		await get_tree().physics_frame
+	var sfloor: float = side_mine.global_position.y + Mine.LEVEL1
+	_check("down the shaft, standing in the drift", player.mine == side_mine and player.is_on_floor()
+		and absf(player.global_position.y - sfloor) < 0.4)
+	_check("the side mine has quartz and no hazards", side_mine.cells.count(Mine.VEIN_A) > 50 and side_mine.hazards == null)
+	var shaft_rock: Dictionary = side_mine.chip(side_mine.to_global(Vector3(4.5, 9.0, 31.7)), Vector3(0, 0, -1))
+	_check("side mine rock can be chipped", int(shaft_rock["rock"]) + int(shaft_rock["vein_a"]) + int(shaft_rock["vein_b"]) > 0)
+	save_now()
+	var sp: Dictionary = SaveGame.read().get("player", {})
+	_check("a save down a shaft loads at its collar", not sp.get("in_mine", true)
+		and (sp.get("pos", Vector3.ZERO) as Vector3).distance_to(shafts[0].exit_point()) < 1.0)
+	SaveGame.delete()
+	exit_mine()
+	for i in 20:
+		await get_tree().physics_frame
+	pp = player.global_position
+	_check("climbed out beside the shaft", player.mine == null and pp.distance_to(shafts[0].exit_point()) < 1.5
+		and absf(pp.y - terrain.height_at(pp.x, pp.z)) < 0.5)
+	enter_shaft(1)
+	_check("one side mine at a time", side_mine.shaft_id == world.shafts[1]["id"])
+	exit_mine()
 
 	# Powered crusher and specimens.
 	inv.money += 1200

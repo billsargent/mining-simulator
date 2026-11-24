@@ -30,7 +30,12 @@ const DIRS = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i
 var cells := PackedByteArray()
 var carved := PackedInt32Array()      # cells the player has opened (saved)
 var built := false
-var hazards: Hazards
+var hazards: Hazards                   # null in a side mine under an old shaft
+## "old" is the big mine behind the portal; "shaft" is a small mine under an old shaft
+## (world_gen.shafts), laid out from its own seed.
+var layout := "old"
+var layout_seed := 0
+var shaft_id := ""
 
 var _chunks := {}                     # Vector3i -> [MeshInstance3D, CollisionShape3D]
 var _pos_cache := {}                  # smoothed corner positions (cleared when the rock changes)
@@ -41,12 +46,15 @@ var _body: StaticBody3D
 
 
 func build(saved_carved: PackedInt32Array = PackedInt32Array(), collapsed: bool = false) -> void:
-	_noise.seed = 1887
+	_noise.seed = 1887 if layout == "old" else layout_seed
 	_noise.frequency = 0.35
 	cells.resize(NX * NY * NZ)
 	cells.fill(ROCK)
-	_layout()
-	if collapsed:
+	if layout == "shaft":
+		_shaft_layout()
+	else:
+		_layout()
+	if collapsed and layout == "old":
 		_fill_cells(Hazards.ROT_CENTER, Hazards.ROT_RADIUS)
 	for c in saved_carved:
 		if c >= 0 and c < cells.size():
@@ -69,16 +77,21 @@ func build(saved_carved: PackedInt32Array = PackedInt32Array(), collapsed: bool 
 		for cy in ceili(float(NY) / CH):
 			for cx in ceili(float(NX) / CH):
 				_build_chunk(Vector3i(cx, cy, cz))
-	_props()
-	hazards = Hazards.new()
-	add_child(hazards)
-	hazards.setup(self, collapsed)
-	_finds()
+	if layout == "shaft":
+		_shaft_props()
+	else:
+		_props()
+		hazards = Hazards.new()
+		add_child(hazards)
+		hazards.setup(self, collapsed)
+		_finds()
 	built = true
 
 
 ## Where you stand after walking in, and which way you face.
 func spawn_point() -> Vector3:
+	if layout == "shaft":
+		return to_global(Vector3(SHAFT_X + 1.6, LEVEL1 + 0.15, 30.0))
 	return to_global(Vector3(4.5, LEVEL1 + 0.15, 30.0))
 
 
@@ -430,3 +443,90 @@ func _props() -> void:
 	light.light_energy = 0.6
 	light.omni_range = 6.0
 	door.add_child(light)
+
+
+# --- A small mine under an old shaft ----------------------------------------------------------
+
+const SHAFT_X := 4.0
+const SHAFT_TOP := 13.0
+const SHAFT_FINDS := ["shaft_a", "shaft_b", "shaft_c"]
+
+
+## A shaft straight up from the level, one drift off its foot with a side branch and a small
+## stope, and one or two veins across them. Lengths and turns come from the seed.
+func _shaft_layout() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = layout_seed
+	var z0 := 30.0
+	# The shaft: a square column of open rock from the level up to the collar.
+	for j in range(floori(LEVEL1 / CELL), floori(SHAFT_TOP / CELL)):
+		for k in range(floori((z0 - 1.25) / CELL), ceili((z0 + 1.25) / CELL)):
+			for i in range(floori((SHAFT_X - 1.25) / CELL), ceili((SHAFT_X + 1.25) / CELL)):
+				if _inside(Vector3i(i, j, k)):
+					cells[_idx(i, j, k)] = OPEN
+	var end_x := rng.randf_range(26.0, 40.0)
+	var end_z := z0 + rng.randf_range(-6.0, 6.0)
+	_tunnel(Vector3(SHAFT_X, LEVEL1, z0), Vector3(end_x, LEVEL1, end_z), 1.3, 2.6)
+	_room(Vector3(end_x, LEVEL1, end_z), Vector3(3.5, 2.2, 3.0))
+	var bx := rng.randf_range(12.0, end_x - 8.0)
+	var bz := z0 + (rng.randf_range(10.0, 18.0) if rng.randf() < 0.5 else -rng.randf_range(10.0, 18.0))
+	_tunnel(Vector3(bx, LEVEL1, z0 + (end_z - z0) * (bx - SHAFT_X) / (end_x - SHAFT_X)), Vector3(bx + 4.0, LEVEL1, bz), 1.2, 2.5)
+	var vx := rng.randf_range(14.0, end_x - 4.0)
+	var lean := rng.randf_range(-0.4, 0.4)
+	var rich := rng.randf() < 0.5
+	for j in NY:
+		for k in NZ:
+			for i in NX:
+				if cells[_idx(i, j, k)] != ROCK:
+					continue
+				var x := (i + 0.5) * CELL
+				var y := (j + 0.5) * CELL
+				var z := (k + 0.5) * CELL
+				if y < LEVEL1 - 1.0 or y > SHAFT_TOP or x > end_x + 6.0:
+					continue
+				var wob := _noise.get_noise_3d(x * 0.4, y * 0.4, z * 0.4) * 0.5
+				if absf(x - vx - lean * (z - z0) - 0.3 * (y - LEVEL1) + wob) < 0.3:
+					cells[_idx(i, j, k)] = VEIN_A
+				elif rich and absf(z - bz - 0.3 * (y - LEVEL1) + wob) < 0.3 and absf(x - bx - 4.0) < 5.0:
+					cells[_idx(i, j, k)] = VEIN_B
+
+
+## A ladder up the shaft (the way out), a few sets of timber, and something the old crew left.
+func _shaft_props() -> void:
+	var timber := Parts.wood("old_timber", Color(0.36, 0.28, 0.2))
+	var z0 := 30.0
+	var ladder := MinePortal.new()
+	ladder.is_exit = true
+	ladder.is_ladder = true
+	ladder.position = Vector3(SHAFT_X - 0.9, LEVEL1, z0)
+	add_child(ladder)
+	var h := SHAFT_TOP - LEVEL1
+	for s: float in [-0.25, 0.25]:
+		Parts.box(ladder, Vector3(0.07, h, 0.07), Vector3(0, h * 0.5, s), timber)
+	var y := 0.3
+	while y < h:
+		Parts.box(ladder, Vector3(0.05, 0.05, 0.5), Vector3(0, y, 0), timber)
+		y += 0.35
+	Parts.collider(ladder, Vector3(0.3, 2.4, 0.7), Vector3(0, 1.2, 0))
+	var light := OmniLight3D.new()
+	light.position = Vector3(0.5, h - 0.5, 0)
+	light.light_color = Color(0.9, 0.88, 0.75)
+	light.light_energy = 0.8
+	light.omni_range = h + 2.0
+	ladder.add_child(light)
+	# Cribbing round the shaft, then a few sets along the drift.
+	for yy in range(int(LEVEL1) + 3, int(SHAFT_TOP), 2):
+		for s: float in [-1.0, 1.0]:
+			Parts.box(self, Vector3(2.4, 0.18, 0.18), Vector3(SHAFT_X, yy, z0 + s * 1.15), timber)
+			Parts.box(self, Vector3(0.18, 0.18, 2.4), Vector3(SHAFT_X + s * 1.15, yy, z0), timber)
+	var x := SHAFT_X + 3.0
+	while x < 14.0:
+		for s: float in [-1.0, 1.0]:
+			Parts.box(self, Vector3(0.2, 2.2, 0.2), Vector3(x, LEVEL1 + 1.1, z0 + s * 0.95), timber)
+		Parts.box(self, Vector3(0.24, 0.22, 2.3), Vector3(x, LEVEL1 + 2.25, z0), timber)
+		x += 3.2
+	var find := Find.new()
+	find.position = Vector3(SHAFT_X + 2.2, LEVEL1, z0 + 0.8)
+	find.rotation.y = 0.4
+	add_child(find)
+	find.build(SHAFT_FINDS[absi(layout_seed) % SHAFT_FINDS.size()])
