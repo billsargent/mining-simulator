@@ -1172,6 +1172,7 @@ func _selftest() -> void:
 		if sluice.feed(deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"])):
 			fed += 1
 	_check("digging stops at bedrock", terrain.dig(bank, Player.DIG_DEPTH, Player.DIG_RADIUS)["removed"] < 0.02)
+	_check("dig sounds by ground", Sfx.dig_sound(5.0, 0.0, false) == "dig_clay" and Sfx.dig_sound(0.5, 0.0, false) == "dig_gravel" and Sfx.dig_sound(0.0, 0.0, true) == "dig_bedrock")
 	for i in 150:
 		await get_tree().physics_frame
 	_check("sluice runs on its own", sluice.processed >= 1)

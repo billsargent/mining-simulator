@@ -322,7 +322,7 @@ func _try_dig() -> void:
 		return
 	var dirt := deposits.shovelful(res["x"], res["z"], res["top"], res["bottom"], res["bedrock"])
 	_animate_dig()
-	Sfx.play("dig", p)
+	Sfx.play(Sfx.dig_sound(res["top"], res["bedrock"], res["at_bedrock"]), p)
 	if machine != null:
 		Sfx.play("pour", machine.global_position, -4.0)
 		machine.feed(dirt)
@@ -331,7 +331,9 @@ func _try_dig() -> void:
 	else:
 		inv.bucket.append(dirt)
 	if res["at_bedrock"]:
-		hud.toast("Down to bedrock. This is where the gold settles.", Color(1.0, 0.9, 0.6))
+		var first := not has_meta("bedrock_hint")
+		set_meta("bedrock_hint", true)
+		hud.toast("Clunk: that's bedrock. The paystreak lies right on it, so scrape it clean and pan this." if first else "Down to bedrock. This is where the gold settles.", Color(1.0, 0.9, 0.6), 5.0 if first else 3.5)
 	refresh_hud()
 
 

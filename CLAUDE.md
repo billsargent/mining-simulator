@@ -101,3 +101,4 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 
 ## M8 additions
 - Hotbar (`player.tools()`, `player.tool`, `select_tool()`, `cycle_tool()`; drawn by `hud.set_hotbar()`): shovel (the mine tool underground), pan, then sieve and detector when owned. Keys 1-8 or the wheel (when not aiming at something that scrolls), LB/RB on the pad. The tool button (`dig`: left mouse, RT) uses the tool in hand; E stays contextual. The detector reads only while in hand. Inventory (`inventory`: Tab, D-pad down) opens `player.toggle_inventory()` in the note box.
+- Dig sounds by ground: `Sfx.dig_sound(top, bedrock, at_bedrock)` picks `dig_clay` (more than `GRAVEL_DEPTH` above bedrock), `dig_gravel`, or `dig_bedrock` (a ringing clunk). The first bedrock hit each session shows a longer hint toast.

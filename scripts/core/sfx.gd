@@ -212,6 +212,9 @@ func _synth_all() -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = 1234
 	_built["dig"] = _wav(_dig(r))
+	_built["dig_gravel"] = _wav(_dig_gravel(r))
+	_built["dig_clay"] = _wav(_dig_clay(r))
+	_built["dig_bedrock"] = _wav(_dig_bedrock(r))
 	_built["pour"] = _wav(_pour(r, 0.55))
 	_built["dump"] = _wav(_pour(r, 0.9))
 	_built["chip"] = _wav(_chip(r))
@@ -303,6 +306,51 @@ func _dig(r: RandomNumberGenerator) -> PackedFloat32Array:
 		y += 0.25 * (r.randf_range(-1.0, 1.0) - y)
 		var grit := (r.randf_range(-1.0, 1.0) if r.randf() < 0.08 else 0.0) * exp(-t * 8.0)
 		out[i] = (y * 1.6 + grit * 0.5 + sin(TAU * 70.0 * t) * 0.4 * exp(-t * 25.0)) * env * 0.8
+	return out
+
+
+## Which dig sound fits the ground: clay and dirt on top, gravel in the last
+## GRAVEL_DEPTH above bedrock, and a ringing clunk once the blade hits bedrock.
+const GRAVEL_DEPTH := 1.0
+
+static func dig_sound(top: float, bedrock: float, at_bedrock: bool) -> String:
+	if at_bedrock:
+		return "dig_bedrock"
+	return "dig_gravel" if top - bedrock < GRAVEL_DEPTH else "dig_clay"
+
+
+## Gravel: the plain scrape plus a rattle of stones.
+func _dig_gravel(r: RandomNumberGenerator) -> PackedFloat32Array:
+	var out := _dig(r)
+	for i in out.size():
+		var t := float(i) / RATE
+		if r.randf() < 0.03:
+			out[i] += r.randf_range(-0.9, 0.9) * exp(-t * 6.0)
+	return out
+
+
+## Clay and dirt: a soft, low, wet slump with no grit.
+func _dig_clay(r: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(0.3 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var y := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var env := exp(-t * 16.0) * minf(1.0, t * 120.0)
+		y += 0.06 * (r.randf_range(-1.0, 1.0) - y)
+		out[i] = (y * 4.0 + sin(TAU * (110.0 - 60.0 * t) * t) * 0.5) * env * 0.8
+	return out
+
+
+## Bedrock: steel on stone, a short ringing clunk.
+func _dig_bedrock(r: RandomNumberGenerator) -> PackedFloat32Array:
+	var out := _bell([620.0, 1490.0, 2710.0], 0.4, 0.4)
+	var th := _thud(r)
+	for i in mini(out.size(), th.size()):
+		out[i] += th[i] * 0.6
+	for i in mini(out.size(), 600):
+		out[i] += r.randf_range(-1.0, 1.0) * exp(-float(i) / 90.0) * 0.7
 	return out
 
 
