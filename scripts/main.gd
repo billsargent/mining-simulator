@@ -49,6 +49,7 @@ const WorkLight = preload("res://scripts/base/work_light.gd")
 const Excavator = preload("res://scripts/vehicles/excavator.gd")
 const Travel = preload("res://scripts/core/travel.gd")
 const Weather = preload("res://scripts/world/weather.gd")
+const Wildlife = preload("res://scripts/world/wildlife.gd")
 const SaveGame = preload("res://scripts/core/save_game.gd")
 const Mine = preload("res://scripts/mine/mine.gd")
 const Settings = preload("res://scripts/core/settings.gd")
@@ -73,6 +74,7 @@ var scatter: Scatter
 var base: HomeBase
 var town: Town
 var weather: Weather
+var wildlife: Wildlife
 var player: Player
 var hud: Hud
 var menu: PauseMenu
@@ -176,6 +178,9 @@ func _ready() -> void:
 	player.deposits = deposits
 	player.hud = hud
 	add_child(player)
+	wildlife = Wildlife.new()
+	add_child(wildlife)
+	wildlife.setup(terrain, world, day_night, player)
 	menu = PauseMenu.new()
 	menu.main = self
 	add_child(menu)
@@ -1167,6 +1172,27 @@ func _v3(p: Vector2) -> Vector3:
 	return Vector3(p.x, 0.0, p.y)
 
 
+func _check_wildlife() -> void:
+	wildlife.clear()
+	var pp := player.global_position
+	var a: Dictionary = wildlife.spawn("deer", Vector2(pp.x + 50.0, pp.z))
+	var n: Node3D = a["node"]
+	var on_ground := absf(n.position.y - terrain.height_at(n.position.x, n.position.z)) < 0.05
+	wildlife._update(a, 0.1, pp)
+	var calm: bool = a["state"] == "graze"
+	wildlife._update(a, 0.1, n.position + Vector3(-10.0, 0.0, 0.0))
+	var start_x := n.position.x
+	for i in 10:
+		wildlife._update(a, 0.1, pp)
+	var b: Dictionary = wildlife.spawn("bird", Vector2(pp.x, pp.z))
+	var high: bool = b["node"].position.y > terrain.height_at(pp.x, pp.z) + 25.0
+	_check("a deer grazes, then bounds away when near", on_ground and calm and a["state"] == "flee" and n.position.x > start_x + 5.0)
+	day_night.underground = true
+	wildlife._process(0.1)
+	day_night.underground = false
+	_check("birds circle high; no wildlife underground", high and wildlife.animals.is_empty())
+
+
 func _check(name: String, ok: bool) -> void:
 	print("SELFTEST %-38s %s" % [name, "ok" if ok else "FAILED"])
 	if not ok:
@@ -2042,6 +2068,7 @@ func _selftest() -> void:
 	Settings.quality = 2
 	Settings.apply_graphics(get_tree())
 	_check("high quality has shadows", day_night.sun.shadow_enabled)
+	_check_wildlife()
 	_check_records()
 	print("SELFTEST complete: %d failed" % _failures)
 
