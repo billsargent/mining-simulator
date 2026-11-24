@@ -97,6 +97,7 @@ var _loading_bar: ProgressBar
 var _dark := false
 var _news_day := -1
 var _compass_t := 0.0
+var _tutor_t := 5.0          # seconds until the next one-time tip may show
 var _tutorial_spot := Vector2.ZERO
 
 
@@ -248,8 +249,18 @@ func _process(delta: float) -> void:
 		_dark = dark
 		for v in get_tree().get_nodes_in_group("vehicles"):
 			v.set_dark(dark)
-		if dark and not player.headlamp_on():
+		if dark and not player.headlamp_on() and player.inv.hints.has("night"):
 			hud.toast("It's getting dark. L turns on your headlamp.", Color(1.0, 0.9, 0.6), 5.0)
+	_tutor_t -= delta
+	if _tutor_t <= 0.0:
+		_tutor_t = 0.5
+		var tip := tutor_hint()
+		if not tip.is_empty() and player.inv.first_hint(tip[0]):
+			if tip[0] == "lost_mine":
+				var c = roadside.trail[0]
+				map_view.add_mark(Vector2(c.global_position.x, c.global_position.z), "Crane's note?")
+			hud.toast(tip[1], Color(0.75, 0.95, 1.0), 8.0)
+			_tutor_t = 20.0        # one tip at a time, with room to breathe between them
 	_track_records(f)
 	_compass_t -= delta
 	if _compass_t <= 0.0:
@@ -293,6 +304,52 @@ func heading() -> float:
 		return 0.0
 	var fwd := -cam.global_basis.z
 	return atan2(fwd.x, -fwd.z)
+
+
+## The one-time tip that fits this moment, as [id, text], or [] for none. Each shows once
+## (inventory `hints`, saved). Text uses keyboard words in parentheses; the toast swaps in pad buttons.
+func tutor_hint() -> Array:
+	var inv = player.inv
+	if player.pan_view != null or hud.note_open():
+		return []
+	var tips := []
+	var k := func(key: String) -> String: return "(%s)" % Settings.prompt_key(key)
+	var g: Dictionary = inv.goals_done
+	if player.mine == null:
+		if g.has("journal"):
+			var pick := "LB and RB switch between them" if Settings.using_pad else "1 and 2 or the mouse wheel pick one"
+			tips.append(["hotbar", "Your tools are on the bar at the bottom: the shovel and the pan. " + pick + ". %s uses the tool in hand; %s works whatever you look at." % [k.call("Left mouse"), k.call("E")]])
+		if not inv.bucket.is_empty():
+			tips.append(["inventory", "%s shows what you carry: the bucket, your gold and your latest pan notes." % k.call("Tab")])
+		if not inv.pan_notes.is_empty():
+			tips.append(["pan_notes", "Every pan leaves a note on where to try next. %s lists the last five." % k.call("Tab")])
+		if player._in_water() and inv.bucket.size() >= inv.bucket_capacity():
+			tips.append(["water_bucket", "Bucket's full and you're in the water: pan right here %s, or take the pan %s and use %s." % [k.call("E"), "(LB/RB)" if Settings.using_pad else "(2)", k.call("Left mouse")]])
+		if day_night.is_dark():
+			tips.append(["night", "Night's falling. %s turns on your headlamp. Roads are easier than the woods after dark." % k.call("L")])
+		if day_night.storm > 0.3:
+			tips.append(["storm", "A storm's rolling in. High water will fill the holes you dug near the creek, so finish up or wait it out in the cabin or a tent."])
+		var f := focus_position()
+		for sh in world.shafts:
+			if Vector2(f.x, f.z).distance_to(sh["pos"]) < 30.0:
+				tips.append(["shaft", "An old shaft. %s at the collar climbs down the ladder. It's dark down there: bring your headlamp." % k.call("E")])
+				break
+		if g.has("sold") and not inv.finds.has("trail_0") and not roadside.trail.is_empty():
+			tips.append(["lost_mine", "Folks in town talk about Crane's lost mine. They say the trail starts at an old place near your cabin. It's marked on your map %s." % k.call("M")])
+		if g.has("hb_running") and not g.has("claim") and inv.money >= _cheapest_claim():
+			tips.append(["claims", "You could afford a claim now. The claims office in town sells ground where your machines can run."])
+	for t in tips:
+		if not inv.hints.has(t[0]):
+			return t
+	return []
+
+
+func _cheapest_claim() -> int:
+	var best := 1 << 30
+	for c in Claims.list:
+		if Claims.known(c) and not Claims.is_owned(c["id"]):
+			best = mini(best, int(c["price"]))
+	return best
 
 
 ## Where the next goal happens, for the guide marker; null where there is no one place.
@@ -2221,6 +2278,7 @@ func _selftest() -> void:
 	_check_wildlife()
 	_check_records()
 	_check_pan_notes()
+	_check_tutor()
 	await _check_ledge()
 	print("SELFTEST complete: %d failed" % _failures)
 
@@ -2308,6 +2366,48 @@ func _savetest(mode: String) -> void:
 			get_tree().get_nodes_in_group("machines").size(), on_truck, machine_of("high_banker") != null,
 			terrain.dug_at(spot.x, spot.y), truck.global_position.snapped(Vector3.ONE * 0.01)])
 		SaveGame.delete()
+
+
+func _check_tutor() -> void:
+	var inv = player.inv
+	var saved_goals: Dictionary = inv.goals_done.duplicate()
+	var saved_hints: Dictionary = inv.hints.duplicate()
+	var saved_bucket: Array = inv.bucket.duplicate()
+	inv.goals_done = {"journal": true}
+	inv.hints = {}
+	inv.bucket = []
+	_check("tutor: hotbar tip after the journal", tutor_hint().size() == 2 and tutor_hint()[0] == "hotbar")
+	var once: bool = inv.first_hint("hotbar") and not inv.first_hint("hotbar")
+	var next := tutor_hint()
+	_check("tutor: a tip shows once", once and (next.is_empty() or next[0] != "hotbar"))
+	inv.hints = {"hotbar": true, "inventory": true, "pan_notes": true, "night": true, "storm": true, "water_bucket": true}
+	var old_pos := player.global_position
+	var sh: Vector2 = world.shafts[0]["pos"]
+	player.global_position = Vector3(sh.x + 10.0, old_pos.y, sh.y)
+	_check("tutor: near an old shaft", tutor_hint().size() == 2 and tutor_hint()[0] == "shaft")
+	player.global_position = old_pos
+	inv.goals_done = {"journal": true, "sold": true}
+	inv.hints["shaft"] = true
+	var saved_finds: Dictionary = inv.finds
+	inv.finds = {}
+	_check("tutor: lost mine trail after the first sale", tutor_hint().size() == 2 and tutor_hint()[0] == "lost_mine")
+	var Inv = load("res://scripts/player/inventory.gd")
+	var copy = Inv.new()
+	copy.from_dict(inv.to_dict())
+	var d: Dictionary = inv.to_dict()
+	d.erase("hints")
+	var old = Inv.new()
+	old.from_dict(d)
+	_check("tutor: tips saved; old saves load with none", copy.hints.has("shaft") and old.hints.is_empty())
+	var was_pad := Settings.using_pad
+	Settings.using_pad = true
+	var pw := Settings.pad_words("(E) (2) (Tab) (left click) left mouse")
+	_check("tutor: goal words for the controller", pw == "(X) (LB/RB) (D-pad down) (A) RT")
+	Settings.using_pad = was_pad
+	inv.goals_done = saved_goals
+	inv.hints = saved_hints
+	inv.bucket = saved_bucket
+	inv.finds = saved_finds
 
 
 func _check_pan_notes() -> void:

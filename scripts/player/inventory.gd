@@ -7,7 +7,7 @@ const Paydirt = preload("res://scripts/gold/paydirt.gd")
 const NUGGET_MASS := 0.3
 const GOALS = [
 	["journal", "Read Grandpa's journal: it's on the crate in front of the porch (E)."],
-	["pan", "Dig some gravel (left mouse), then pan it at the creek's edge (E). The green marker shows where."],
+	["pan", "Dig some gravel with the shovel (left mouse). At the creek's edge, take the pan (2) and pan it (left mouse), or just press (E). The green marker shows where."],
 	["read_creek", "Read the creek: gold sinks where the water slows. Try the inside of a bend or just below a big boulder, and dig deep. Pan until you get a few colors."],
 	["sluice_placed", "Carry the sluice from the shed (F) and set it in the creek (left mouse)."],
 	["sluice_fed", "Dig right next to the sluice: each shovelful goes straight in."],
@@ -59,6 +59,7 @@ var chest_garnets := PackedFloat32Array()
 var chest_bars: Array = []
 var goals_done := {}
 var samples := PackedVector3Array()     # test pans for the map: x, z, grams
+var hints := {}                         # one-time tips already shown (Tutor)
 var pan_notes: Array = []               # recent prospecting notes, newest last (PAN_NOTES_MAX)
 const PAN_NOTES_MAX := 8
 # Records for the pause menu's Records page.
@@ -237,6 +238,14 @@ func complete_goal(id: String) -> bool:
 	return true
 
 
+## True the first time a one-time tip is asked for; it's remembered in the save.
+func first_hint(id: String) -> bool:
+	if hints.has(id):
+		return false
+	hints[id] = true
+	return true
+
+
 ## The id of the next goal, or "" when they're all done.
 func next_goal_id() -> String:
 	for g in GOALS:
@@ -256,7 +265,7 @@ func to_dict() -> Dictionary:
 	return {
 		"money": money, "bucket": _dirt_out(bucket), "cons": _dirt_out(cons), "ore": _dirt_out(ore),
 		"vial": vial, "nuggets": nuggets, "bars": bars, "pans": pans,
-		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "samples": samples, "pan_notes": pan_notes,
+		"high_banker_bought": high_banker_bought, "tool_tier": tool_tier, "goals": goals_done, "hints": hints, "samples": samples, "pan_notes": pan_notes,
 		"crusher_powered": crusher_powered, "specimens": specimens, "garnets": garnets, "finds": finds, "gear": gear, "claims": claims,
 		"records": {"biggest_nugget": biggest_nugget, "gold_found": gold_found, "earned": earned, "best_day": best_day,
 			"best_day_no": best_day_no, "today_no": _today_no, "today": _today, "garnets_found": garnets_found,
@@ -278,6 +287,7 @@ func from_dict(d: Dictionary) -> void:
 	high_banker_bought = d.get("high_banker_bought", false)
 	tool_tier = d.get("tool_tier", 0)
 	goals_done = d.get("goals", {})
+	hints = d.get("hints", {})
 	samples = d.get("samples", PackedVector3Array())
 	pan_notes = d.get("pan_notes", [])
 	crusher_powered = d.get("crusher_powered", false)
