@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Godot and export templates
         run: |
@@ -55,7 +55,7 @@ jobs:
           (cd linux && chmod +x Paystreak.x86_64 && tar czf ../Paystreak-linux.tar.gz Paystreak.x86_64)
           cp macos/Paystreak.zip Paystreak-macos.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Paystreak-builds
           path: |
