@@ -55,7 +55,7 @@ jobs:
           (cd linux && chmod +x Paystreak.x86_64 && tar czf ../Paystreak-linux.tar.gz Paystreak.x86_64)
           cp macos/Paystreak.zip Paystreak-macos.zip
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: Paystreak-builds
           path: |
