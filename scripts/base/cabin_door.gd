@@ -9,6 +9,7 @@ const Hud = preload("res://scripts/ui/hud.gd")
 const WIDTH := 0.95
 const OPEN_ANGLE := -1.75          # radians: swung inward, against the wall
 
+var title := "Cabin door"
 var is_open := false
 var _tween: Tween
 
@@ -25,7 +26,7 @@ func build() -> void:
 
 
 func prompt(_player) -> String:
-	return "[b]Cabin door[/b]\n%s %s" % [Hud.key("E"), "Close the door" if is_open else "Open the door"]
+	return "[b]%s[/b]\n%s %s" % [title, Hud.key("E"), "Close the door" if is_open else "Open the door"]
 
 
 func interact(_player) -> void:

@@ -192,7 +192,37 @@ func _ruin_cabin(root: Node3D, c) -> void:
 	Parts.box(trunk, Vector3(0.8, 0.45, 0.5), Vector3(1.6, 0.225, -1.6), Parts.wood("trunk", Color(0.35, 0.22, 0.14)))
 	Parts.box(trunk, Vector3(0.82, 0.06, 0.52), Vector3(1.6, 0.42, -1.6), _rust)
 	_put_cache(root, c, Vector3(1.6, 0, -1.6), Vector3(0.8, 0.5, 0.5), "the old trunk")
+	_ruin_inside(root, Vector3(-2.3, 0, -2.0), 4.6, 4.0)
 	_fade(root)
+
+
+## What's left inside an abandoned cabin: floorboards with gaps, a bunk frame, a table on its
+## side, a chair and a rusted stove. `corner` is the inside back-left corner.
+func _ruin_inside(root: Node3D, corner: Vector3, w: float, d: float) -> void:
+	var boards := Parts.wood("old_floor", Color(0.36, 0.3, 0.24))
+	var n := int(w / 0.3)
+	for i in n:
+		if i % 4 == 2:
+			continue
+		Parts.box(root, Vector3(0.26, 0.04, d - 0.3 * float(i % 3)), corner + Vector3(0.15 + i * 0.3, 0.03, d * 0.5), boards)
+	var b := _body(root)
+	var bunk := corner + Vector3(0.45, 0, d - 1.1)
+	for p: Vector3 in [Vector3(-0.35, 0.25, -0.9), Vector3(0.35, 0.25, -0.9), Vector3(-0.35, 0.25, 0.9), Vector3(0.35, 0.25, 0.9)]:
+		Parts.box(root, Vector3(0.08, 0.5, 0.08), bunk + p, _logs)
+	for s: float in [-1.0, 1.0]:
+		Parts.box(root, Vector3(0.06, 0.12, 1.9), bunk + Vector3(s * 0.35, 0.42, 0), _logs)
+	Parts.box(root, Vector3(0.7, 0.04, 0.9), bunk + Vector3(0, 0.44, 0.45), _logs, Vector3(0.12, 0, 0))
+	Parts.collider(b, Vector3(0.8, 0.5, 1.9), bunk + Vector3(0, 0.25, 0))
+	var table := corner + Vector3(w * 0.55, 0, d * 0.55)
+	Parts.box(root, Vector3(1.0, 0.7, 0.05), table + Vector3(0, 0.35, 0), _logs, Vector3(0, 0.4, 0))
+	for k in 2:
+		Parts.box(root, Vector3(0.05, 0.05, 0.6), table + Vector3(-0.3 + k * 0.6, 0.6, 0.3), _logs, Vector3(0, 0.4, 0))
+	Parts.collider(b, Vector3(1.0, 0.7, 0.2), table + Vector3(0, 0.35, 0), Vector3(0, 0.4, 0))
+	Parts.box(root, Vector3(0.4, 0.04, 0.4), table + Vector3(0.8, 0.45, 0.6), _logs, Vector3(0.2, 0.5, 0.1))
+	var stove := corner + Vector3(1.2, 0, 0.45)
+	Parts.box(root, Vector3(0.6, 0.5, 0.45), stove + Vector3(0, 0.3, 0), _rust)
+	Parts.cyl(root, 0.06, 0.9, stove + Vector3(0.05, 0.95, -0.05), _rust, Vector3(0.25, 0, 0), -1.0, 8)
+	Parts.collider(b, Vector3(0.6, 0.55, 0.45), stove + Vector3(0, 0.28, 0))
 
 
 func _wreck(root: Node3D, c) -> void:
