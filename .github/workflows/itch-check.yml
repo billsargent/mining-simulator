@@ -1,0 +1,28 @@
+# Checks the itch.io key works: asks itch.io about the game page with butler. Runs by hand
+# (Actions > itch.io check > Run workflow) or on a push to the itch-check branch.
+name: itch.io check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [itch-check]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install butler
+        run: |
+          curl -sL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+          ./butler/butler -V
+      - name: Ask itch.io about the page
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: ./butler/butler status billsargent/paystreak
+      - name: Check the key and that the page belongs to it
+        env:
+          KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          curl -sf -H "Authorization: Bearer $KEY" https://api.itch.io/profile/games \
+            | python3 -c "import json,sys; g=json.load(sys.stdin).get('games',[]); u=[x['url'] for x in g]; print('games:', u); sys.exit(0 if any(x.endswith('/paystreak') for x in u) else 1)"
