@@ -5,7 +5,7 @@ name: itch.io check
 on:
   workflow_dispatch:
   push:
-    branches: [m9-itch]
+    branches: [itch-check]
 
 jobs:
   check:

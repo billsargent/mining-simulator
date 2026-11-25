@@ -1,5 +1,6 @@
 # Builds the game for Windows, Linux and macOS. Runs by hand (Actions > Build > Run workflow)
-# and on version tags (v*), which also attach the builds to a GitHub release.
+# and on version tags (v*), which also attach the builds to a GitHub release and push them to
+# itch.io (billsargent/paystreak, key in the BUTLER_API_KEY secret).
 name: Build
 
 on:
@@ -75,3 +76,15 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --generate-notes $files
           fi
+
+      - name: Upload to itch.io
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          curl -sL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+          v="${GITHUB_REF_NAME#v}"
+          ./butler/butler push build/windows billsargent/paystreak:windows --userversion "$v"
+          ./butler/butler push build/linux billsargent/paystreak:linux --userversion "$v"
+          ./butler/butler push build/macos/Paystreak.zip billsargent/paystreak:mac --userversion "$v"
