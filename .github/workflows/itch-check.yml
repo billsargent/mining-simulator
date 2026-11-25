@@ -19,4 +19,4 @@ jobs:
       - name: Ask itch.io about the page
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
-        run: ./butler/butler status billsargent/patstreak
+        run: ./butler/butler status billsargent/paystreak
