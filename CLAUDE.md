@@ -121,3 +121,4 @@ Work is tracked on GitHub: follow `CONTRIBUTING.md` (labelled issues, sub-issue 
 
 ## M9 additions
 - Town interiors (`town.gd`): the three buildings are hollow (walls, floor, ceiling, hanging lamp, a `cabin_door.gd` door with its own `title`, starting open) with furniture; the store catalog, assay counter and claims board stand inside (`town.doors`). `--view=store|assay|claims` look from inside.
+- Also closed in: the home shed (`home_base._shed_inside()`: east wall, front stubs, barn doors open, no floor so machines still stand on the ground), the town garage (front wall, rolled-up door, shop inside), and the ruins (`roadside._ruin_inside()`, the Last Chance Camp cabin in `landmarks.gd`).

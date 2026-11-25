@@ -2127,6 +2127,12 @@ func _selftest() -> void:
 	_check("an ATV sunk in the ground is lifted out", quad.to_global(Vector3(0, quad.com_y, 0)).y > terrain.height_at(quad.global_position.x, quad.global_position.z) - 0.05)
 	for i in 120:
 		await get_tree().physics_frame
+	# Start the next check from a known state: standing upright, at rest.
+	quad.global_transform = Transform3D(Basis.IDENTITY, Vector3(qp.x, terrain.height_at(qp.x, qp.z) + 0.6, qp.z))
+	quad.linear_velocity = Vector3.ZERO
+	quad.angular_velocity = Vector3.ZERO
+	for i in 60:
+		await get_tree().physics_frame
 	quad.enter(player)
 	for i in 10:
 		await get_tree().physics_frame

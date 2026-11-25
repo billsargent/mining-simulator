@@ -270,3 +270,52 @@ func _shed() -> void:
 	add_child(body)
 	Parts.collider(body, Vector3(5.2, 1.9, 0.1), Vector3(-7.2, 0.95, -3.0))
 	Parts.collider(body, Vector3(0.1, 1.9, 3.3), Vector3(-9.8, 0.95, -1.35))
+	_shed_inside(planks, body)
+
+
+## The shed closed in: the east wall, short front walls either side of a wide opening (the
+## machines go in and out there) with barn doors swung back, a shelf and tools on the back
+## wall, and a lamp. No floor: the machines stand on the ground.
+func _shed_inside(planks: Material, body: StaticBody3D) -> void:
+	Parts.box(self, Vector3(0.05, 2.0, 3.3), Vector3(-4.6, 1.0, -1.35), planks)
+	Parts.collider(body, Vector3(0.1, 2.0, 3.3), Vector3(-4.6, 1.0, -1.35))
+	var dark := Parts.wood("door", Color(0.27, 0.19, 0.12))
+	for seg: Array in [[-9.8, -9.2], [-5.2, -4.6]]:
+		var w: float = seg[1] - seg[0]
+		var x: float = (seg[0] + seg[1]) * 0.5
+		Parts.box(self, Vector3(w, 2.2, 0.05), Vector3(x, 1.1, 0.3), planks)
+		Parts.collider(body, Vector3(w, 2.2, 0.1), Vector3(x, 1.1, 0.3))
+	# Barn doors, open flat against the front walls outside.
+	for s: Array in [[-9.2, 1.0], [-5.2, -1.0]]:
+		var leaf := Node3D.new()
+		leaf.position = Vector3(s[0], 0.05, 0.36)
+		leaf.rotation.y = -s[1] * 1.5
+		add_child(leaf)
+		Parts.box(leaf, Vector3(1.95, 2.0, 0.05), Vector3(s[1] * 0.98, 1.0, 0.0), dark)
+		for y: float in [0.4, 1.6]:
+			Parts.box(leaf, Vector3(1.85, 0.1, 0.03), Vector3(s[1] * 0.98, y, 0.04), dark)
+	# Shelf high on the back wall with cans and a coil of rope; tools hung below.
+	var wood := Parts.wood("furniture", Color(0.5, 0.36, 0.22))
+	Parts.box(self, Vector3(3.0, 0.04, 0.3), Vector3(-7.2, 1.75, -2.82), wood)
+	var tin := Parts.galvanized()
+	for j in 5:
+		Parts.cyl(self, 0.08, 0.2, Vector3(-8.4 + j * 0.5, 1.87, -2.82), tin, Vector3.ZERO, -1.0, 10)
+	Parts.cyl(self, 0.18, 0.1, Vector3(-6.1, 1.82, -2.8), Parts.mat("rope", Color(0.62, 0.52, 0.36), 1.0), Vector3.ZERO, 0.18, 14)
+	var steel := Parts.steel()
+	for t in 3:
+		var x := -9.4 + t * 0.35
+		Parts.box(self, Vector3(0.04, 1.2, 0.04), Vector3(x, 1.0, -2.94), wood, Vector3(0, 0, 0.05))
+		Parts.box(self, Vector3(0.24, 0.3, 0.02), Vector3(x + 0.03, 0.35, -2.94), steel)
+	Parts.box(self, Vector3(0.6, 0.04, 0.04), Vector3(-9.0, 1.45, -2.94), steel)
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(-7.2, 1.95, -1.3)
+	lamp.light_color = Color(1.0, 0.82, 0.55)
+	lamp.light_energy = 0.8
+	lamp.omni_range = 4.0
+	add_child(lamp)
+	var bulb := StandardMaterial3D.new()
+	bulb.albedo_color = Color(1.0, 0.85, 0.5)
+	bulb.emission_enabled = true
+	bulb.emission = Color(1.0, 0.8, 0.45)
+	bulb.emission_energy_multiplier = 2.0
+	Parts.cyl(self, 0.06, 0.12, Vector3(-7.2, 2.05, -1.3), bulb, Vector3.ZERO, -1.0, 10)

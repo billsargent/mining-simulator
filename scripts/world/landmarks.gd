@@ -51,6 +51,19 @@ func _camp(root: Node3D) -> void:
 	root.add_child(body)
 	Parts.collider(body, Vector3(4.6, 1.2, 0.3), Vector3(0, 0.6, -3.5))
 	Parts.collider(body, Vector3(0.3, 0.9, 3.6), Vector3(-2.2, 0.45, -1.8))
+	# Inside: gappy floorboards, a rusted stove against the back wall and a bunk frame.
+	var boards := Parts.wood("old_floor", Color(0.36, 0.3, 0.24))
+	for i in 14:
+		if i % 4 != 1:
+			Parts.box(root, Vector3(0.26, 0.04, 3.2 - 0.4 * float(i % 2)), Vector3(-2.0 + i * 0.3, 0.03, -1.8), boards)
+	Parts.box(root, Vector3(0.6, 0.5, 0.45), Vector3(1.2, 0.3, -3.05), rust)
+	Parts.cyl(root, 0.06, 0.8, Vector3(1.25, 0.95, -3.1), rust, Vector3(0.3, 0, 0), -1.0, 8)
+	Parts.collider(body, Vector3(0.6, 0.55, 0.45), Vector3(1.2, 0.28, -3.05))
+	for p: Vector3 in [Vector3(-1.75, 0.25, -3.0), Vector3(-1.05, 0.25, -3.0), Vector3(-1.75, 0.25, -1.2), Vector3(-1.05, 0.25, -1.2)]:
+		Parts.box(root, Vector3(0.08, 0.5, 0.08), p, logs)
+	for x: float in [-1.75, -1.05]:
+		Parts.box(root, Vector3(0.06, 0.12, 1.9), Vector3(x, 0.42, -2.1), logs)
+	Parts.collider(body, Vector3(0.8, 0.5, 1.9), Vector3(-1.4, 0.25, -2.1))
 
 
 ## A timber portal in a rock face, boarded up.

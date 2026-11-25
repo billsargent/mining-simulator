@@ -256,3 +256,41 @@ func _garage() -> void:
 		Parts.collider(body, Vector3(0.2, 3.0, 5.0), Vector3(s * 3.0, 1.5, -2.5))
 	Parts.collider(body, Vector3(0.5, 1.6, 0.4), Vector3(4.4, 0.8, 1.0))
 	Parts.collider(body, Vector3(1.6, 0.9, 1.4), Vector3(1.9, 0.45, -4.1))
+	Parts.collider(body, Vector3(1.8, 0.9, 0.7), Vector3(-1.6, 0.45, -4.4))
+	# Front wall either side of a wide roll-up door, rolled up under the eave.
+	for seg: Array in [[-3.0, -1.9], [1.9, 3.0]]:
+		var w: float = seg[1] - seg[0]
+		var x: float = (seg[0] + seg[1]) * 0.5
+		Parts.box(root, Vector3(w, 3.0, 0.08), Vector3(x, 1.5, -0.05), tin)
+		Parts.collider(body, Vector3(w, 3.0, 0.16), Vector3(x, 1.5, -0.05))
+	Parts.box(root, Vector3(3.8, 0.4, 0.08), Vector3(0, 2.85, -0.05), tin)
+	Parts.cyl(root, 0.2, 3.8, Vector3(0, 2.45, -0.2), Parts.paint("door_roll", Color(0.5, 0.52, 0.5)), Vector3(0, 0, PI / 2.0), -1.0, 14)
+	Parts.box(root, Vector3(6.0, 0.06, 5.0), Vector3(0, 0.03, -2.5), Parts.mat("concrete", Color(0.5, 0.49, 0.46), 0.95))
+	# Vise and tools on the bench, a pegboard of wrenches, stacked tyres, an engine on a stand.
+	var iron := Parts.mat("iron", Color(0.18, 0.17, 0.17), 0.6, 0.7)
+	var steel := Parts.steel()
+	Parts.box(root, Vector3(0.2, 0.15, 0.15), Vector3(-2.2, 0.98, -4.3), iron)
+	Parts.box(root, Vector3(0.4, 0.12, 0.2), Vector3(-1.3, 0.96, -4.4), Parts.paint("toolbox", Color(0.6, 0.12, 0.1)))
+	Parts.box(root, Vector3(1.8, 1.0, 0.03), Vector3(-1.6, 1.6, -4.92), Parts.wood("pegboard", Color(0.55, 0.45, 0.32)))
+	for j in 7:
+		Parts.box(root, Vector3(0.03, 0.22 + 0.04 * (j % 3), 0.02), Vector3(-2.3 + j * 0.23, 1.6, -4.89), steel)
+	var rubber := Parts.rubber()
+	for k in 4:
+		Parts.cyl(root, 0.33, 0.2, Vector3(-2.4, 0.1 + k * 0.21, -2.3), rubber, Vector3.ZERO, -1.0, 16)
+	Parts.collider(body, Vector3(0.7, 0.85, 0.7), Vector3(-2.4, 0.42, -2.3))
+	Parts.box(root, Vector3(0.6, 0.45, 0.5), Vector3(0.6, 0.85, -3.6), Parts.paint("engine", Color(0.25, 0.3, 0.34)))
+	Parts.cyl(root, 0.04, 0.6, Vector3(0.6, 0.3, -3.6), iron, Vector3.ZERO, -1.0, 8)
+	Parts.box(root, Vector3(0.6, 0.04, 0.6), Vector3(0.6, 0.02, -3.6), iron)
+	Parts.collider(body, Vector3(0.6, 1.1, 0.6), Vector3(0.6, 0.55, -3.6))
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(0, 2.6, -2.5)
+	lamp.light_color = Color(1.0, 0.9, 0.75)
+	lamp.light_energy = 1.2
+	lamp.omni_range = 5.5
+	root.add_child(lamp)
+	var bulb := StandardMaterial3D.new()
+	bulb.albedo_color = Color(1.0, 0.95, 0.85)
+	bulb.emission_enabled = true
+	bulb.emission = Color(1.0, 0.92, 0.8)
+	bulb.emission_energy_multiplier = 2.0
+	Parts.box(root, Vector3(1.2, 0.05, 0.1), Vector3(0, 2.9, -2.5), bulb)
